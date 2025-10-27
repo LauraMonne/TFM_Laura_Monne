@@ -4,7 +4,9 @@
     "val_samples": 1712,
     "test_samples": 3421,
     "n_classes": 8,
-    "n_channels": 3,
+    "original_channels": 3,
+    "input_channels": 3,
+    "image_size": 28,
     "task": "multi-class"
   },
   "retinamnist": {
@@ -12,7 +14,9 @@
     "val_samples": 120,
     "test_samples": 400,
     "n_classes": 5,
-    "n_channels": 3,
+    "original_channels": 3,
+    "input_channels": 3,
+    "image_size": 28,
     "task": "multi-class"
   },
   "breastmnist": {
@@ -20,7 +24,9 @@
     "val_samples": 78,
     "test_samples": 156,
     "n_classes": 2,
-    "n_channels": 1,
+    "original_channels": 1,
+    "input_channels": 3,
+    "image_size": 28,
     "task": "binary-class"
   }
 }
