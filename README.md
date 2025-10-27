@@ -1,6 +1,8 @@
 # ResNet-19 para Clasificación de Imágenes Médicas con MedMNIST - TFM Laura Monne
 
-Este proyecto implementa una arquitectura ResNet-19 personalizada para clasificación de imágenes médicas usando los datasets BloodMNIST, RetinaMNIST y BreastMNIST del repositorio MedMNIST.
+Repositorio oficial: [https://github.com/LauraMonne/TFM_Laura_Monne](https://github.com/LauraMonne/TFM_Laura_Monne)
+
+Este proyecto implementa una arquitectura **ResNet-19** personalizada para clasificación de imágenes médicas usando los datasets **BloodMNIST**, **RetinaMNIST** y **BreastMNIST** del repositorio **MedMNIST**.
 
 ## 📋 Descripción del Proyecto
 
@@ -9,12 +11,12 @@ El proyecto incluye:
 - **Datasets MedMNIST**: BloodMNIST, RetinaMNIST y BreastMNIST
 - **Data Augmentation**: Transformaciones para mejorar el rendimiento
 - **Entrenamiento Completo**: Scripts de entrenamiento con validación y evaluación
-- **Manejo de Múltiples Canales**: Soporte para imágenes RGB y escala de grises
+- **Visualización de resultados**: métricas, gráficas y matriz de confusión.
 
 ## 🏗️ Arquitectura ResNet-19
 
 La arquitectura implementada incluye:
-- **Capa inicial**: Conv2d(7x7) + BatchNorm + MaxPool
+- **Capa inicial**: Conv2d(7x7) + BatchNorm + ReLU + MaxPool
 - **3 Capas residuales**: 
   - Layer 1: 2 bloques BasicBlock con 64 canales
   - Layer 2: 2 bloques BasicBlock con 128 canales  
@@ -67,7 +69,8 @@ python quick_test.py
 
 3. **Entrenamiento completo**:
 ```bash
-python train.py
+python train.py --dataset retina --epochs 20 --batch-size 64 --lr 1e-3 --weight-decay 1e-4 --seed 42
+
 ```
 
 ## 📁 Estructura del Proyecto
@@ -119,6 +122,12 @@ En la prueba rápida (3 épocas):
 - **Precisión de validación**: ~79.2%
 - **Tiempo de entrenamiento**: ~1.2 horas (CPU)
 
+## 🧠 Reproducibilidad
+```` bash
+from train import set_seed
+set_seed(42)
+````
+
 ## 🎯 Próximos Pasos
 
 - [ ] Entrenamiento completo con más épocas
@@ -126,6 +135,8 @@ En la prueba rápida (3 épocas):
 - [ ] Comparación con otras arquitecturas
 - [ ] Análisis de errores por dataset
 - [ ] Implementación de técnicas avanzadas (mixup, cutmix)
+
+
 
 ## 📚 Referencias
 
