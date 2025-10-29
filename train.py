@@ -1,6 +1,6 @@
 """
 Script de entrenamiento para ResNet-19 con datasets MedMNIST
-Incluye entrenamiento, validación y evaluación
+Incluye entrenamiento, validación y evaluación con reproducibilidad y guardado estructurado.
 """
 
 import os
@@ -20,8 +20,12 @@ warnings.filterwarnings('ignore')
 
 # Importar nuestros módulos
 from prepare_data import load_datasets, create_combined_dataset
-from resnet19 import create_model
+from resnet19 import create_model, set_seed
 
+
+# ------------------------------------------------------------
+# CLASE EARLY STOPPING
+# ------------------------------------------------------------
 class EarlyStopping:
     """Early stopping para evitar overfitting"""
     
@@ -54,6 +58,10 @@ class EarlyStopping:
         """Guarda los mejores pesos del modelo"""
         self.best_weights = model.state_dict().copy()
 
+
+# ------------------------------------------------------------
+# CLASE TRAINER
+# ------------------------------------------------------------
 class Trainer:
     """Clase para manejar el entrenamiento del modelo"""
     
@@ -65,10 +73,8 @@ class Trainer:
         self.device = device
         self.config = config
         
-        # Mover modelo al dispositivo
         self.model.to(device)
         
-        # Configurar optimizador y scheduler
         self.optimizer = optim.AdamW(
             model.parameters(), 
             lr=config['learning_rate'],
@@ -76,23 +82,18 @@ class Trainer:
         )
         
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            self.optimizer, 
+        self.optimizer, 
             mode='min', 
             factor=0.5, 
-            patience=3,
-            verbose=True
+            patience=3
         )
         
-        # Función de pérdida
         self.criterion = nn.CrossEntropyLoss()
-        
-        # Early stopping
         self.early_stopping = EarlyStopping(
             patience=config['early_stopping_patience'],
             min_delta=0.001
         )
         
-        # Historial de entrenamiento
         self.history = {
             'train_loss': [],
             'train_acc': [],
@@ -103,52 +104,36 @@ class Trainer:
     def train_epoch(self):
         """Entrena el modelo por una época"""
         self.model.train()
-        running_loss = 0.0
-        correct = 0
-        total = 0
+        running_loss, correct, total = 0.0, 0, 0
         
         pbar = tqdm(self.train_loader, desc='Entrenando')
-        for batch_idx, (data, target) in enumerate(pbar):
+        for data, target in pbar:
             data, target = data.to(self.device), target.to(self.device)
-            
-            # Forward pass
             self.optimizer.zero_grad()
+            
             output = self.model(data)
             loss = self.criterion(output, target)
-            
-            # Backward pass
             loss.backward()
             self.optimizer.step()
             
-            # Estadísticas
             running_loss += loss.item()
             _, predicted = output.max(1)
             total += target.size(0)
             correct += predicted.eq(target).sum().item()
             
-            # Actualizar barra de progreso
-            pbar.set_postfix({
-                'Loss': f'{loss.item():.4f}',
-                'Acc': f'{100.*correct/total:.2f}%'
-            })
+            pbar.set_postfix({'Loss': f'{loss.item():.4f}', 'Acc': f'{100.*correct/total:.2f}%'})
         
-        epoch_loss = running_loss / len(self.train_loader)
-        epoch_acc = 100. * correct / total
-        
-        return epoch_loss, epoch_acc
+        return running_loss / len(self.train_loader), 100. * correct / total
     
     def validate_epoch(self):
         """Valida el modelo por una época"""
         self.model.eval()
-        running_loss = 0.0
-        correct = 0
-        total = 0
+        running_loss, correct, total = 0.0, 0, 0
         
         with torch.no_grad():
             pbar = tqdm(self.val_loader, desc='Validando')
             for data, target in pbar:
                 data, target = data.to(self.device), target.to(self.device)
-                
                 output = self.model(data)
                 loss = self.criterion(output, target)
                 
@@ -157,24 +142,13 @@ class Trainer:
                 total += target.size(0)
                 correct += predicted.eq(target).sum().item()
                 
-                pbar.set_postfix({
-                    'Loss': f'{loss.item():.4f}',
-                    'Acc': f'{100.*correct/total:.2f}%'
-                })
+                pbar.set_postfix({'Loss': f'{loss.item():.4f}', 'Acc': f'{100.*correct/total:.2f}%'})
         
-        epoch_loss = running_loss / len(self.val_loader)
-        epoch_acc = 100. * correct / total
-        
-        return epoch_loss, epoch_acc
+        return running_loss / len(self.val_loader), 100. * correct / total
     
     def train(self):
         """Entrena el modelo completo"""
         print("Iniciando entrenamiento...")
-        print(f"Dispositivo: {self.device}")
-        print(f"Épocas: {self.config['epochs']}")
-        print(f"Tamaño de batch: {self.config['batch_size']}")
-        print(f"Learning rate: {self.config['learning_rate']}")
-        
         start_time = time.time()
         best_val_acc = 0
         
@@ -182,59 +156,44 @@ class Trainer:
             print(f"\nÉpoca {epoch+1}/{self.config['epochs']}")
             print("-" * 50)
             
-            # Entrenar
             train_loss, train_acc = self.train_epoch()
-            
-            # Validar
             val_loss, val_acc = self.validate_epoch()
-            
-            # Actualizar scheduler
             self.scheduler.step(val_loss)
             
-            # Guardar historial
             self.history['train_loss'].append(train_loss)
             self.history['train_acc'].append(train_acc)
             self.history['val_loss'].append(val_loss)
             self.history['val_acc'].append(val_acc)
             
-            # Mostrar resultados
             print(f"Entrenamiento - Loss: {train_loss:.4f}, Acc: {train_acc:.2f}%")
             print(f"Validación   - Loss: {val_loss:.4f}, Acc: {val_acc:.2f}%")
             print(f"Learning Rate: {self.optimizer.param_groups[0]['lr']:.6f}")
             
-            # Guardar mejor modelo
             if val_acc > best_val_acc:
                 best_val_acc = val_acc
-                self.save_model(f"best_model_epoch_{epoch+1}.pth")
+                self.save_model("results/best_model.pth")
                 print(f"Nuevo mejor modelo guardado (Acc: {val_acc:.2f}%)")
             
-            # Early stopping
             if self.early_stopping(val_loss, self.model):
                 print(f"Early stopping activado en época {epoch+1}")
                 break
         
-        training_time = time.time() - start_time
-        print(f"\nEntrenamiento completado en {training_time/60:.2f} minutos")
+        total_time = (time.time() - start_time) / 60
+        print(f"\nEntrenamiento completado en {total_time:.2f} minutos")
         print(f"Mejor precisión de validación: {best_val_acc:.2f}%")
-        
         return self.history
     
     def evaluate(self):
         """Evalúa el modelo en el conjunto de test"""
         print("\nEvaluando en conjunto de test...")
-        
         self.model.eval()
-        all_predictions = []
-        all_targets = []
-        test_loss = 0.0
-        correct = 0
-        total = 0
+        all_predictions, all_targets = [], []
+        test_loss, correct, total = 0.0, 0, 0
         
         with torch.no_grad():
             pbar = tqdm(self.test_loader, desc='Evaluando')
             for data, target in pbar:
                 data, target = data.to(self.device), target.to(self.device)
-                
                 output = self.model(data)
                 loss = self.criterion(output, target)
                 
@@ -246,10 +205,7 @@ class Trainer:
                 all_predictions.extend(predicted.cpu().numpy())
                 all_targets.extend(target.cpu().numpy())
                 
-                pbar.set_postfix({
-                    'Loss': f'{loss.item():.4f}',
-                    'Acc': f'{100.*correct/total:.2f}%'
-                })
+                pbar.set_postfix({'Loss': f'{loss.item():.4f}', 'Acc': f'{100.*correct/total:.2f}%'})
         
         test_loss /= len(self.test_loader)
         test_acc = 100. * correct / total
@@ -257,16 +213,15 @@ class Trainer:
         print(f"\nResultados en Test:")
         print(f"Loss: {test_loss:.4f}")
         print(f"Accuracy: {test_acc:.2f}%")
+        print("\nReporte de clasificación:")
+        print(classification_report(all_targets, all_predictions))
         
-        return {
-            'test_loss': test_loss,
-            'test_acc': test_acc,
-            'predictions': all_predictions,
-            'targets': all_targets
-        }
+        plot_confusion_matrix(all_targets, all_predictions)
+        
+        return {'test_loss': test_loss, 'test_acc': test_acc}
     
     def save_model(self, filename):
-        """Guarda el modelo"""
+        os.makedirs("results", exist_ok=True)
         torch.save({
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
@@ -274,98 +229,61 @@ class Trainer:
             'history': self.history
         }, filename)
     
-    def load_model(self, filename):
-        """Carga el modelo"""
-        checkpoint = torch.load(filename, map_location=self.device)
-        self.model.load_state_dict(checkpoint['model_state_dict'])
-        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        self.config = checkpoint['config']
-        self.history = checkpoint['history']
-    
     def plot_history(self):
         """Grafica el historial de entrenamiento"""
+        os.makedirs("results", exist_ok=True)
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
-        
-        # Loss
         ax1.plot(self.history['train_loss'], label='Entrenamiento')
         ax1.plot(self.history['val_loss'], label='Validación')
-        ax1.set_title('Pérdida por Época')
-        ax1.set_xlabel('Época')
-        ax1.set_ylabel('Pérdida')
-        ax1.legend()
-        ax1.grid(True)
-        
-        # Accuracy
+        ax1.set_title('Pérdida por Época'); ax1.legend(); ax1.grid(True)
         ax2.plot(self.history['train_acc'], label='Entrenamiento')
         ax2.plot(self.history['val_acc'], label='Validación')
-        ax2.set_title('Precisión por Época')
-        ax2.set_xlabel('Época')
-        ax2.set_ylabel('Precisión (%)')
-        ax2.legend()
-        ax2.grid(True)
-        
+        ax2.set_title('Precisión por Época'); ax2.legend(); ax2.grid(True)
         plt.tight_layout()
-        plt.savefig('training_history.png', dpi=150, bbox_inches='tight')
+        plt.savefig('results/training_history.png', dpi=150, bbox_inches='tight')
         plt.show()
 
+
+# ------------------------------------------------------------
+# FUNCIONES AUXILIARES
+# ------------------------------------------------------------
 def create_data_loaders(datasets, batch_size=32, num_workers=4):
-    """Crea los data loaders para entrenamiento, validación y test"""
-    
-    # Crear datasets combinados
+    """Crea los data loaders"""
     train_dataset = create_combined_dataset(datasets, 'train')
     val_dataset = create_combined_dataset(datasets, 'val')
     test_dataset = create_combined_dataset(datasets, 'test')
     
-    # Crear data loaders
-    train_loader = DataLoader(
-        train_dataset, 
-        batch_size=batch_size, 
-        shuffle=True, 
-        num_workers=0,
-        pin_memory=False
-    )
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True)
     
-    val_loader = DataLoader(
-        val_dataset, 
-        batch_size=batch_size, 
-        shuffle=False, 
-        num_workers=0,
-        pin_memory=False
-    )
-    
-    test_loader = DataLoader(
-        test_dataset, 
-        batch_size=batch_size, 
-        shuffle=False, 
-        num_workers=0,
-        pin_memory=False
-    )
-    
-    print(f"Data loaders creados:")
-    print(f"  - Entrenamiento: {len(train_dataset)} muestras, {len(train_loader)} batches")
-    print(f"  - Validación: {len(val_dataset)} muestras, {len(val_loader)} batches")
-    print(f"  - Test: {len(test_dataset)} muestras, {len(test_loader)} batches")
-    
+    print(f"\nDataLoaders creados:")
+    print(f"  - Train: {len(train_dataset)} muestras, {len(train_loader)} batches")
+    print(f"  - Val:   {len(val_dataset)} muestras, {len(val_loader)} batches")
+    print(f"  - Test:  {len(test_dataset)} muestras, {len(test_loader)} batches")
     return train_loader, val_loader, test_loader
 
-def plot_confusion_matrix(y_true, y_pred, class_names=None):
+
+def plot_confusion_matrix(y_true, y_pred):
     """Grafica la matriz de confusión"""
+    os.makedirs("results", exist_ok=True)
     cm = confusion_matrix(y_true, y_pred)
-    
     plt.figure(figsize=(10, 8))
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
-                xticklabels=class_names, yticklabels=class_names)
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
     plt.title('Matriz de Confusión')
-    plt.xlabel('Predicción')
-    plt.ylabel('Verdadero')
+    plt.xlabel('Predicción'); plt.ylabel('Verdadero')
     plt.tight_layout()
-    plt.savefig('confusion_matrix.png', dpi=150, bbox_inches='tight')
+    plt.savefig('results/confusion_matrix.png', dpi=150, bbox_inches='tight')
     plt.show()
 
+
+# ------------------------------------------------------------
+# MAIN
+# ------------------------------------------------------------
 def main():
     """Función principal de entrenamiento"""
+    set_seed(42)
     
-    # Configuración
     config = {
         'batch_size': 32,
         'epochs': 50,
@@ -376,58 +294,27 @@ def main():
     }
     
     print("=== ENTRENAMIENTO RESNET-19 CON MEDMNIST ===")
-    print(f"Configuración: {json.dumps(config, indent=2)}")
+    print(json.dumps(config, indent=2))
     
-    # Dispositivo
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Dispositivo: {device}")
     
-    # Cargar datos
-    print("\nCargando datasets...")
     datasets = load_datasets('./data', target_size=224)
+    train_loader, val_loader, test_loader = create_data_loaders(datasets, config['batch_size'], config['num_workers'])
     
-    # Crear data loaders
-    train_loader, val_loader, test_loader = create_data_loaders(
-        datasets, 
-        batch_size=config['batch_size'],
-        num_workers=config['num_workers']
-    )
-    
-    # Crear modelo
-    print("\nCreando modelo ResNet-19...")
     model = create_model(num_classes=15)
-    
-    # Crear trainer
     trainer = Trainer(model, train_loader, val_loader, test_loader, device, config)
     
-    # Entrenar
     history = trainer.train()
-    
-    # Evaluar
     results = trainer.evaluate()
-    
-    # Graficar resultados
     trainer.plot_history()
     
-    # Guardar resultados
-    results_dict = {
-        'config': config,
-        'history': history,
-        'test_results': {
-            'test_loss': results['test_loss'],
-            'test_acc': results['test_acc']
-        }
-    }
-    
-    with open('training_results.json', 'w') as f:
-        json.dump(results_dict, f, indent=2)
+    with open('results/training_results.json', 'w') as f:
+        json.dump({'config': config, 'history': history, 'results': results}, f, indent=2)
     
     print("\n=== ENTRENAMIENTO COMPLETADO ===")
     print(f"Precisión final en test: {results['test_acc']:.2f}%")
-    print("Resultados guardados en 'training_results.json'")
-    print("Historial de entrenamiento guardado en 'training_history.png'")
-    
-    return trainer, results
+    print("Resultados guardados en carpeta 'results/'")
 
 if __name__ == "__main__":
     trainer, results = main()
