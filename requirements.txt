@@ -1,9 +1,24 @@
+# --- PyTorch y ecosistema ---
 torch>=2.0.0
 torchvision>=0.15.0
+torchaudio>=2.0.0
+
+# --- Datasets biomédicos ---
 medmnist>=2.1.0
-numpy>=1.21.0
-matplotlib>=3.5.0
-scikit-learn>=1.0.0
+
+# --- Ciencia de datos / métricas ---
+numpy>=1.23.0
+scikit-learn>=1.2.0
+pandas>=1.5.0
+
+# --- Visualización ---
+matplotlib>=3.6.0
+seaborn>=0.12.0
+Pillow>=9.2.0
+
+# --- Entrenamiento y seguimiento ---
 tqdm>=4.64.0
 tensorboard>=2.10.0
-Pillow>=9.0.0
+
+# --- Utilidades adicionales ---
+jsonschema>=4.0.0
