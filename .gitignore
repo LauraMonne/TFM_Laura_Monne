@@ -1,4 +1,10 @@
-# Python
+# qué archivos o carpetas no rastrear (no incluir en commits)
+
+# =======================================
+#  IGNORAR ARCHIVOS GENERADOS AUTOMÁTICAMENTE
+# =======================================
+
+# ---- Python ----
 __pycache__/
 *.py[cod]
 *$py.class
@@ -21,14 +27,45 @@ wheels/
 *.egg
 MANIFEST
 
-# PyTorch
-*.pth
+# =======================================
+#  FRAMEWORKS DE IA
+# =======================================
+
+# ---- PyTorch ----
 *.pt
+*.pth
+*.ckpt
+*.onnx  # Exportaciones de modelos
 
-# Jupyter Notebook
+# ---- TensorBoard ----
+*.tfevents.*
+runs/
+
+# ---- Checkpoints y outputs ----
+checkpoints/
+outputs/
+results/  # donde guardas métricas, plots y reportes
+best_model.pth
+
+# =======================================
+#  JUPYTER / GOOGLE COLAB
+# =======================================
+
 .ipynb_checkpoints
+# Archivos temporales de Colab
+*.ipynb~*
+*.colab
+# Archivos subidos o descargados temporalmente
+/content/
+drive/MyDrive/TFM_results/
+# Evita subir outputs pesados desde notebooks
+*_output.png
+*_visualization.png
 
-# Environment
+# =======================================
+#  ENTORNOS VIRTUALES
+# =======================================
+
 .env
 .venv
 env/
@@ -37,14 +74,23 @@ ENV/
 env.bak/
 venv.bak/
 
-# IDE
+# =======================================
+#  EDITORES E IDEs
+# =======================================
+
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+*.code-workspace
+*.sublime-project
+*.sublime-workspace
 
-# OS
+# =======================================
+#  SISTEMA OPERATIVO
+# =======================================
+
 .DS_Store
 .DS_Store?
 ._*
@@ -53,19 +99,46 @@ venv.bak/
 ehthumbs.db
 Thumbs.db
 
-# Logs
+# =======================================
+#  LOGS, DEBUG Y TEMPORALES
+# =======================================
+
 *.log
 logs/
-
-# Data (opcional - descomenta si no quieres subir los datasets)
-# data/
-# *.npz
-
-# Outputs grandes
-outputs/
-checkpoints/
-runs/
-
-# Temporary files
 *.tmp
 *.temp
+*.bak
+debug/
+__MACOSX/
+
+# =======================================
+#  DATOS (opcional)
+# =======================================
+
+# Descomenta si no quieres subir datasets locales:
+# data/
+# *.npz
+# *.h5
+# *.csv
+# *.zip
+# *.tar.gz
+
+# =======================================
+#  DOCUMENTACIÓN Y ARCHIVOS PERSONALES
+# =======================================
+
+# Archivos Word, PDF o de exportación temporal
+~$*.docx
+~$*.xlsx
+*.pdf
+*.docx
+*.pptx
+
+# =======================================
+#  COPIAS DE SEGURIDAD O AUTOGUARDADOS
+# =======================================
+
+*.bak
+*.old
+*.orig
+*.save
