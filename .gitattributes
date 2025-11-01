@@ -3,3 +3,6 @@
 *.ckpt filter=lfs diff=lfs merge=lfs -text
 *.npz filter=lfs diff=lfs merge=lfs -text
 *.h5 filter=lfs diff=lfs merge=lfs -text
+
+# uso de Git LFS (Large File Storage) para ciertos tipos de archivos binarios “pesados”:
+# guarda el contenido de ficheros grandes (modelos, checkpoints, arrays…) fuera del repo y en su lugar mete un puntero pequeño en Git
