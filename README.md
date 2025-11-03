@@ -1,28 +1,29 @@
-# ResNet-19 para Clasificación de Imágenes Médicas con MedMNIST - TFM Laura Monne
+# ResNet-18 para Clasificación de Imágenes Médicas con MedMNIST - TFM Laura Monne
 
 Repositorio oficial: [https://github.com/LauraMonne/TFM_Laura_Monne](https://github.com/LauraMonne/TFM_Laura_Monne)
 
-Este proyecto implementa una arquitectura **ResNet-19** personalizada para clasificación de imágenes médicas usando los datasets **BloodMNIST**, **RetinaMNIST** y **BreastMNIST** del repositorio **MedMNIST**.
+Este proyecto implementa una arquitectura **ResNet-18** estándar para clasificación de imágenes médicas usando los datasets **BloodMNIST**, **RetinaMNIST** y **BreastMNIST** del repositorio **MedMNIST**.
 
 ## 📋 Descripción del Proyecto
 
 El proyecto incluye:
-- **Arquitectura ResNet-19**: Implementación personalizada con bloques residuales
+- **Arquitectura ResNet-18**: Implementación estándar de ResNet con bloques residuales
 - **Datasets MedMNIST**: BloodMNIST, RetinaMNIST y BreastMNIST
 - **Data Augmentation**: Transformaciones para mejorar el rendimiento
 - **Entrenamiento Completo**: Scripts de entrenamiento con validación y evaluación
 - **Visualización de resultados**: métricas, gráficas y matriz de confusión.
 
-## 🏗️ Arquitectura ResNet-19
+## 🏗️ Arquitectura ResNet-18
 
 La arquitectura implementada incluye:
 - **Capa inicial**: Conv2d(7x7) + BatchNorm + ReLU + MaxPool
-- **3 Capas residuales**: 
+- **4 Capas residuales**: 
   - Layer 1: 2 bloques BasicBlock con 64 canales
   - Layer 2: 2 bloques BasicBlock con 128 canales  
   - Layer 3: 2 bloques BasicBlock con 256 canales
-- **Capa final**: AdaptiveAvgPool + Linear(256 → 15 clases)
-- **Total de parámetros**: ~5.6M parámetros entrenables
+  - Layer 4: 2 bloques BasicBlock con 512 canales
+- **Capa final**: AdaptiveAvgPool + Linear(512 → 15 clases)
+- **Total de parámetros**: ~11M parámetros entrenables
 
 ## 📊 Datasets Utilizados
 
@@ -50,8 +51,8 @@ Pillow>=9.0.0
 
 ### Instalación
 ```bash
-git clone https://github.com/tu-usuario/medmnist-resnet19.git
-cd medmnist-resnet19
+git clone https://github.com/LauraMonne/TFM_Laura_Monne.git
+cd TFM_Laura_Monne
 pip install -r requirements.txt
 ```
 
@@ -76,9 +77,9 @@ python train.py --dataset retina --epochs 20 --batch-size 64 --lr 1e-3 --weight-
 ## 📁 Estructura del Proyecto
 
 ```
-medmnist_resnet19_project/
+medmnist_resnet18_project/
 ├── prepare_data.py          # Preparación y carga de datasets
-├── resnet19.py             # Implementación de ResNet-19
+├── resnet18.py             # Implementación de ResNet-18
 ├── train.py                # Script de entrenamiento completo
 ├── quick_test.py           # Prueba rápida (3 épocas)
 ├── data_utils.py           # Utilidades para manejo de datos
@@ -89,7 +90,7 @@ medmnist_resnet19_project/
 │   ├── bloodmnist.npz
 │   ├── retinamnist.npz
 │   └── breastmnist.npz
-└── outputs/               # Resultados del entrenamiento
+└── results/               # Resultados del entrenamiento
     ├── training_history.png
     ├── confusion_matrix.png
     ├── best_model.pth
@@ -106,8 +107,9 @@ medmnist_resnet19_project/
 ### Optimización
 - **Optimizador**: AdamW con weight decay
 - **Scheduler**: ReduceLROnPlateau
-- **Early Stopping**: Patience de 10 épocas
-- **Batch Size**: 32 (configurable)
+- **Early Stopping**: Patience de 15 épocas
+- **Batch Size**: 64 (configurable)
+- **Epochs**: 120 épocas máximas
 
 ### Métricas de Evaluación
 - Accuracy por época

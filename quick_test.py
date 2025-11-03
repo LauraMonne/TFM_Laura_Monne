@@ -1,5 +1,5 @@
 """
-Script de prueba rápida para ResNet-19 con MedMNIST.
+Script de prueba rápida para ResNet-18 con MedMNIST.
 Entrena pocas épocas para verificar que todo el pipeline funciona.
 Incluye reproducibilidad básica.
 """
@@ -16,7 +16,7 @@ from tqdm import tqdm
 
 # Módulos propios
 from prepare_data import load_datasets, get_dataset_info
-from resnet19 import create_model
+from resnet18 import create_model
 from data_utils import create_data_loaders_fixed
 
 
@@ -41,7 +41,7 @@ def _infer_num_classes_from_meta() -> int:
 
 def quick_train_test() -> torch.nn.Module:
     """Prueba rápida del entrenamiento con pocas épocas."""
-    print("=== PRUEBA RÁPIDA DE ENTRENAMIENTO RESNET-19 ===")
+    print("=== PRUEBA RÁPIDA DE ENTRENAMIENTO RESNET-18 ===")
 
     # Config mínima para smoke test
     config = {
@@ -76,7 +76,7 @@ def quick_train_test() -> torch.nn.Module:
 
     # Modelo
     num_classes = _infer_num_classes_from_meta()
-    print(f"\nCreando modelo ResNet-19 (num_classes={num_classes})...")
+    print(f"\nCreando modelo ResNet-18 (num_classes={num_classes})...")
     model = create_model(num_classes=num_classes).to(device)
 
     # Entrenamiento rápido

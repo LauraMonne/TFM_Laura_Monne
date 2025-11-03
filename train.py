@@ -1,5 +1,5 @@
 """
-Entrenamiento ResNet-19 con MedMNIST (optimizado para GPU y Colab)
+Entrenamiento ResNet-18 con MedMNIST (optimizado para GPU y Colab)
 - Mixed precision (AMP)
 - Validación cada 3 épocas
 - DataLoader optimizado para GPU
@@ -22,7 +22,7 @@ warnings.filterwarnings('ignore')
 
 # Módulos propios
 from prepare_data import load_datasets, create_combined_dataset
-from resnet19 import create_model, set_seed
+from resnet18 import create_model, set_seed
 
 # ------------------------------------------------------------
 # Mixed precision
@@ -286,15 +286,15 @@ def create_data_loaders(datasets, batch_size=32, num_workers=2):
 def main():
     set_seed(42)
     config = {
-        'batch_size': 32,
-        'epochs': 50,
+        'batch_size': 64,  # Aumentado para mejor uso de GPU
+        'epochs': 120,  # Aumentado a 120 épocas como solicitado
         'learning_rate': 0.001,
         'weight_decay': 1e-4,
-        'early_stopping_patience': 10,
-        'num_workers': 2
+        'early_stopping_patience': 15,  # Aumentado proporcionalmente a epochs
+        'num_workers': 4  # Más workers para cargar datos más rápido
     }
 
-    print("=== ENTRENAMIENTO RESNET-19 CON MEDMNIST (AMP y val cada 3 epocas) ===")
+    print("=== ENTRENAMIENTO RESNET-18 CON MEDMNIST (AMP y val cada 3 epocas) ===")
     print(json.dumps(config, indent=2))
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
