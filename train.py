@@ -4,7 +4,7 @@ Mejoras clave:
 - AMP (mixed precision)
 - Validación cada época
 - Gradient clipping (con AMP)
-- WeightedRandomSampler en train para clases minoritarias (además de class weights)
+- SOLO class weights (sin WeightedRandomSampler para no sobre-corregir)
 - Siempre evalúa el mejor checkpoint (best_model.pth)
 """
 
@@ -18,7 +18,7 @@ warnings.filterwarnings('ignore')
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader, WeightedRandomSampler
+from torch.utils.data import DataLoader
 
 import matplotlib.pyplot as plt
 from sklearn.metrics import classification_report, confusion_matrix
@@ -32,53 +32,26 @@ from resnet18 import create_model, set_seed
 # AMP
 from torch.cuda.amp import autocast, GradScaler
 
-
 # ----------------------------- Utilidades -----------------------------
 def compute_class_weights(dataset, num_classes: int):
     """
-    Calcula pesos de clase inversos a la frecuencia sobre un dataset con etiquetas enteras [0..num_classes-1].
-    """
-    labels = []
-    for i in range(len(dataset)):
-        # dataset[i] -> (img, label)
-        _, y = dataset[i]
-        if isinstance(y, torch.Tensor):
-            y = int(y.item())
-        else:
-            y = int(y)
-        labels.append(y)
-
-    labels = np.array(labels)
-    counts = np.bincount(labels, minlength=num_classes)
-    # Evitar división por cero
-    counts = np.clip(counts, 1, None)
-    inv = 1.0 / counts
-    inv = inv * (num_classes / inv.sum())  # normalización opcional
-    return inv.astype(np.float32), counts
-
-
-def make_weighted_sampler(dataset, class_weights_vec):
-    """
-    Construye un WeightedRandomSampler para el dataset de train,
-    asignando a cada muestra el peso de su clase.
+    Calcula pesos de clase inversos a la frecuencia sobre un dataset con etiquetas [0..num_classes-1].
     """
     labels = []
     for i in range(len(dataset)):
         _, y = dataset[i]
         y = int(y.item()) if isinstance(y, torch.Tensor) else int(y)
         labels.append(y)
-    labels = np.array(labels)
-    weights_per_sample = class_weights_vec[labels]
-    sampler = WeightedRandomSampler(
-        weights=torch.from_numpy(weights_per_sample),
-        num_samples=len(weights_per_sample),
-        replacement=True
-    )
-    return sampler
 
+    labels = np.array(labels)
+    counts = np.bincount(labels, minlength=num_classes)
+    counts = np.clip(counts, 1, None)
+    inv = 1.0 / counts
+    inv = inv * (num_classes / inv.sum())  # normalizar
+    return inv.astype(np.float32), counts
 
 class EarlyStopping:
-    def __init__(self, patience=7, min_delta=0.0, restore_best_weights=True):
+    def __init__(self, patience=7, min_delta=1e-4, restore_best_weights=True):
         self.patience = patience
         self.min_delta = min_delta
         self.restore_best_weights = restore_best_weights
@@ -105,7 +78,6 @@ class EarlyStopping:
             return True
         return False
 
-
 # ----------------------------- Trainer -----------------------------
 class Trainer:
     def __init__(self, model, train_loader, val_loader, test_loader, device, config, class_weights=None):
@@ -125,11 +97,7 @@ class Trainer:
             self.optimizer, mode='min', factor=0.5, patience=3
         )
 
-        # Criterion con class weights (si se piden y existen)
-        if config.get('use_class_weights', True) and class_weights is not None:
-            w = torch.tensor(class_weights, device=device, dtype=torch.float32)
-        else:
-            w = None
+        w = torch.tensor(class_weights, device=device, dtype=torch.float32) if (config.get('use_class_weights', True) and class_weights is not None) else None
         self.criterion = nn.CrossEntropyLoss(weight=w)
 
         self.early_stopping = EarlyStopping(
@@ -147,18 +115,15 @@ class Trainer:
         self.model.train()
         running_loss, correct, total = 0.0, 0, 0
         pbar = tqdm(self.train_loader, desc='Entrenando', leave=False)
-
         for data, target in pbar:
             data = data.to(self.device, non_blocking=True)
             target = target.to(self.device, non_blocking=True)
 
             self.optimizer.zero_grad(set_to_none=True)
-
             with autocast():
                 output = self.model(data)
                 loss = self.criterion(output, target)
 
-            # AMP backward + gradient clipping
             self.scaler.scale(loss).backward()
             self.scaler.unscale_(self.optimizer)
             gc_norm = float(self.config.get('grad_clip_norm', 0.0) or 0.0)
@@ -171,9 +136,8 @@ class Trainer:
             _, predicted = output.max(1)
             total += target.size(0)
             correct += predicted.eq(target).sum().item()
+            pbar.set_postfix({'Loss': f'{loss.item():.4f}', 'Acc': f'{100.0 * correct / max(1,total):.2f}%'})
 
-            pbar.set_postfix({'Loss': f'{loss.item():.4f}',
-                              'Acc': f'{100.0 * correct / max(1,total):.2f}%'})
         return running_loss / max(1, len(self.train_loader)), 100.0 * correct / max(1, total)
 
     def validate_epoch(self):
@@ -187,13 +151,12 @@ class Trainer:
                 with autocast():
                     output = self.model(data)
                     loss = self.criterion(output, target)
-
                 running_loss += loss.item()
                 _, predicted = output.max(1)
                 total += target.size(0)
                 correct += predicted.eq(target).sum().item()
-                pbar.set_postfix({'Loss': f'{loss.item():.4f}',
-                                  'Acc': f'{100.0 * correct / max(1,total):.2f}%'})
+                pbar.set_postfix({'Loss': f'{loss.item():.4f}', 'Acc': f'{100.0 * correct / max(1,total):.2f}%'})
+
         return running_loss / max(1, len(self.val_loader)), 100.0 * correct / max(1, total)
 
     def train(self):
@@ -216,14 +179,12 @@ class Trainer:
             print(f"Entrenamiento - Loss: {train_loss:.4f}, Acc: {train_acc:.2f}%")
             print(f"Validación   - Loss: {val_loss:.4f}, Acc: {val_acc:.2f}%")
 
-            # Guardado de mejor modelo por val_loss
             if val_loss < self.best_val_loss - 1e-6:
                 self.best_val_loss = val_loss
                 self.best_val_acc = val_acc
                 self.save_model("results/best_model.pth")
                 print(f"✔️ Nuevo mejor modelo (val_loss={val_loss:.4f}, val_acc={val_acc:.2f}%)")
 
-            # Early stopping
             if self.early_stopping(val_loss, self.model):
                 print(f"⏹️ Early stopping activado en época {epoch+1}")
                 break
@@ -254,9 +215,7 @@ class Trainer:
                 correct += pred.eq(target).sum().item()
                 all_preds.extend(pred.detach().cpu().numpy())
                 all_targets.extend(target.detach().cpu().numpy())
-
-                pbar.set_postfix({'Loss': f'{loss.item():.4f}',
-                                  'Acc': f'{100.0 * correct / max(1,total):.2f}%'})
+                pbar.set_postfix({'Loss': f'{loss.item():.4f}', 'Acc': f'{100.0 * correct / max(1,total):.2f}%'})
 
         test_loss /= max(1, len(self.test_loader))
         test_acc = 100.0 * correct / max(1, total)
@@ -297,7 +256,6 @@ class Trainer:
         ax1.plot(self.history['train_loss'], label='Entrenamiento')
         ax1.plot(self.history['val_loss'], label='Validación')
         ax1.set_title('Pérdida por Época'); ax1.legend(); ax1.grid(True)
-
         ax2.plot(self.history['train_acc'], label='Entrenamiento')
         ax2.plot(self.history['val_acc'], label='Validación')
         ax2.set_title('Precisión por Época'); ax2.legend(); ax2.grid(True)
@@ -305,12 +263,11 @@ class Trainer:
         plt.savefig('results/training_history.png', dpi=150, bbox_inches='tight')
         plt.close()
 
-
 # ----------------------------- DataLoaders -----------------------------
-def create_data_loaders(datasets, batch_size=64, num_workers=4, num_classes=15, use_weighted_sampler=True):
+def create_data_loaders(datasets, batch_size=64, num_workers=4, num_classes=15):
     """
     Crea los datasets combinados y DataLoaders.
-    - Usa WeightedRandomSampler en train si use_weighted_sampler=True.
+    (Sin sampler ponderado: usamos únicamente class weights en la loss)
     """
     persistent = num_workers > 0
 
@@ -318,31 +275,21 @@ def create_data_loaders(datasets, batch_size=64, num_workers=4, num_classes=15, 
     val_dataset   = create_combined_dataset(datasets, split='val')
     test_dataset  = create_combined_dataset(datasets, split='test')
 
-    # Pesos de clase y sampler para train
+    # Pesos de clase para la loss
     class_weights_vec, counts = compute_class_weights(train_dataset, num_classes=num_classes)
     print("Distribución de clases en train:", counts.tolist())
     print("Pesos de clase (inv. freq normalizados):", [float(f"{w:.4f}") for w in class_weights_vec])
 
-    if use_weighted_sampler:
-        train_sampler = make_weighted_sampler(train_dataset, class_weights_vec)
-        train_loader = DataLoader(
-            train_dataset, batch_size=batch_size, sampler=train_sampler,
-            num_workers=num_workers, pin_memory=True, prefetch_factor=2,
-            persistent_workers=persistent
-        )
-    else:
-        train_loader = DataLoader(
-            train_dataset, batch_size=batch_size, shuffle=True,
-            num_workers=num_workers, pin_memory=True, prefetch_factor=2,
-            persistent_workers=persistent
-        )
-
+    train_loader = DataLoader(
+        train_dataset, batch_size=batch_size, shuffle=True,
+        num_workers=num_workers, pin_memory=True, prefetch_factor=2,
+        persistent_workers=persistent
+    )
     val_loader = DataLoader(
         val_dataset, batch_size=batch_size, shuffle=False,
         num_workers=num_workers, pin_memory=True, prefetch_factor=2,
         persistent_workers=persistent
     )
-
     test_loader = DataLoader(
         test_dataset, batch_size=batch_size, shuffle=False,
         num_workers=num_workers, pin_memory=True, prefetch_factor=2,
@@ -350,7 +297,6 @@ def create_data_loaders(datasets, batch_size=64, num_workers=4, num_classes=15, 
     )
 
     return train_loader, val_loader, test_loader, class_weights_vec
-
 
 # ----------------------------- MAIN -----------------------------
 def main():
@@ -364,11 +310,10 @@ def main():
         'num_workers': 4,
         'use_class_weights': True,
         'grad_clip_norm': 1.0,
-        'use_weighted_sampler': True,
         'num_classes': 15
     }
 
-    print("=== ENTRENAMIENTO RESNET-18 (AMP, val cada época, sampler + class weights, grad clip) ===")
+    print("=== ENTRENAMIENTO RESNET-18 (AMP, val/época, class weights, grad clip) ===")
     print(json.dumps(config, indent=2))
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -376,36 +321,30 @@ def main():
     if device.type == 'cuda':
         print(f"GPU: {torch.cuda.get_device_name(0)}")
 
-    print("Cargando datasets de MedMNIST...")
     datasets = load_datasets('./data', target_size=224)
 
     train_loader, val_loader, test_loader, class_weights_vec = create_data_loaders(
         datasets,
         batch_size=config['batch_size'],
         num_workers=config['num_workers'],
-        num_classes=config['num_classes'],
-        use_weighted_sampler=config['use_weighted_sampler']
+        num_classes=config['num_classes']
     )
 
     model = create_model(num_classes=config['num_classes'])
-    # Trainer con class_weights en la loss
     trainer = Trainer(
         model, train_loader, val_loader, test_loader, device, config,
         class_weights=class_weights_vec if config['use_class_weights'] else None
     )
 
-    # Entrenamiento
     history = trainer.train()
 
     # Cargar SIEMPRE el mejor checkpoint antes de evaluar
     best_ckpt = torch.load('results/best_model.pth', map_location=device)
-    model.load_state_dict(best_ckpt['model_state_dict'])
+    trainer.model.load_state_dict(best_ckpt['model_state_dict'])
 
-    # Evaluación y gráficos
     results = trainer.evaluate()
     trainer.plot_history()
 
-    # Guardar JSON
     os.makedirs('results', exist_ok=True)
     with open('results/training_results.json', 'w') as f:
         json.dump({'config': config, 'history': history, 'results': results}, f, indent=2)
@@ -413,7 +352,6 @@ def main():
     print("\n=== ENTRENAMIENTO COMPLETADO ===")
     print(f"Precisión final en test: {results['test_acc']:.2f}%")
     print("Resultados guardados en carpeta 'results/'")
-
 
 if __name__ == "__main__":
     main()
