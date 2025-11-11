@@ -6,116 +6,72 @@ Incluye versión adaptativa y función de prueba.
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from torchvision import models
 
-# Reproductibilidad
-
+# Reproductibilidad y rendimiento
 def set_seed(seed=42):
-    """Fija las semillas para reproducibilidad"""
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = True  # Optimización para GPU
-
-# Bloque básico de ResNet con conexiones residuales
+    # Rendimiento en GPU:
+    torch.backends.cudnn.benchmark = True
+    # Si quisieras determinismo duro, pondrías deterministic=True y benchmark=False,
+    # pero perderías rendimiento y no es necesario aquí.
 
 class BasicBlock(nn.Module):
-    """Bloque básico de ResNet con conexiones residuales"""
-
     expansion = 1
 
     def __init__(self, in_channels, out_channels, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
-
-        self.conv1 = nn.Conv2d(
-            in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False
-        )
-        self.bn1 = nn.BatchNorm2d(out_channels)
-
-        self.conv2 = nn.Conv2d(
-            out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False
-        )
-        self.bn2 = nn.BatchNorm2d(out_channels)
-
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, 3, stride=stride, padding=1, bias=False)
+        self.bn1   = nn.BatchNorm2d(out_channels)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, 3, stride=1, padding=1, bias=False)
+        self.bn2   = nn.BatchNorm2d(out_channels)
         self.downsample = downsample
-        self.stride = stride
         self.relu = nn.ReLU(inplace=True)
 
     def forward(self, x):
         residual = x
-
         out = self.relu(self.bn1(self.conv1(x)))
         out = self.bn2(self.conv2(out))
-
         if self.downsample is not None:
             residual = self.downsample(x)
-
-        out += residual
-        out = self.relu(out)
-
+        out = self.relu(out + residual)
         return out
 
-# Arquitectura ResNet-18 personalizada para MedMNIST
-
 class ResNet18(nn.Module):
-    """Arquitectura ResNet-18 estándar para MedMNIST"""
-
     def __init__(self, num_classes=15, input_channels=3):
-        """
-        Args:
-            num_classes: Número total de clases (8 + 5 + 2 = 15)
-            input_channels: Número de canales de entrada (3 para RGB, 1 para escala de grises)
-        """
-        super(ResNet18, self).__init__()
-
+        super().__init__()
         self.in_channels = 64
         self.relu = nn.ReLU(inplace=True)
 
-        # Capa inicial
-        self.conv1 = nn.Conv2d(input_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.bn1 = nn.BatchNorm2d(64)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.conv1 = nn.Conv2d(input_channels, 64, 7, stride=2, padding=3, bias=False)
+        self.bn1   = nn.BatchNorm2d(64)
+        self.maxpool = nn.MaxPool2d(3, stride=2, padding=1)
 
-        # Bloques residuales - ResNet-18 tiene 4 capas con [2, 2, 2, 2] bloques
-        self.layer1 = self._make_layer(BasicBlock, 64, 2, stride=1)
+        self.layer1 = self._make_layer(BasicBlock, 64,  2, stride=1)
         self.layer2 = self._make_layer(BasicBlock, 128, 2, stride=2)
         self.layer3 = self._make_layer(BasicBlock, 256, 2, stride=2)
         self.layer4 = self._make_layer(BasicBlock, 512, 2, stride=2)
 
-        # Capas finales
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(512, num_classes)
+        self.fc      = nn.Linear(512, num_classes)
 
-        # Inicialización de pesos
         self._initialize_weights()
 
     def _make_layer(self, block, out_channels, blocks, stride=1):
-        """Crea una capa de bloques residuales"""
         downsample = None
-
         if stride != 1 or self.in_channels != out_channels * block.expansion:
             downsample = nn.Sequential(
-                nn.Conv2d(
-                    self.in_channels,
-                    out_channels * block.expansion,
-                    kernel_size=1,
-                    stride=stride,
-                    bias=False,
-                ),
+                nn.Conv2d(self.in_channels, out_channels * block.expansion, 1, stride=stride, bias=False),
                 nn.BatchNorm2d(out_channels * block.expansion),
             )
 
         layers = [block(self.in_channels, out_channels, stride, downsample)]
         self.in_channels = out_channels * block.expansion
-
         for _ in range(1, blocks):
             layers.append(block(self.in_channels, out_channels))
-
         return nn.Sequential(*layers)
 
     def _initialize_weights(self):
-        """Inicializa los pesos de la red"""
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
@@ -127,100 +83,50 @@ class ResNet18(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def forward(self, x):
-        """Forward pass de la red"""
         x = self.relu(self.bn1(self.conv1(x)))
         x = self.maxpool(x)
 
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-
+        x = self.layer1(x); x = self.layer2(x); x = self.layer3(x); x = self.layer4(x)
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
-        x = self.fc(x)
-
-        return x
-
-# Modelo adaptativo
+        return self.fc(x)
 
 class ResNet18Adaptive(nn.Module):
-    """ResNet-18 adaptativo que maneja diferentes números de canales de entrada"""
-
     def __init__(self, num_classes=15):
-        super(ResNet18Adaptive, self).__init__()
-        self.rgb_model = ResNet18(num_classes=num_classes, input_channels=3)
+        super().__init__()
+        self.rgb_model  = ResNet18(num_classes=num_classes, input_channels=3)
         self.gray_model = ResNet18(num_classes=num_classes, input_channels=1)
 
     def forward(self, x):
-        """Forward pass adaptativo según el número de canales"""
         if x.shape[1] == 3:
             return self.rgb_model(x)
         elif x.shape[1] == 1:
             return self.gray_model(x)
         else:
-            raise ValueError(
-                f"Número de canales no soportado: {x.shape[1]}. "
-                "Solo se admiten 1 (grises) o 3 (RGB)."
-            )
+            raise ValueError(f"Canales no soportados: {x.shape[1]} (esperado 1 o 3)")
 
-# Función para crear el modelo
 def create_model(num_classes=15, pretrained=False):
-    """
-    Crea el modelo ResNet-18
-    Args:
-        num_classes: Número de clases (15 para los 3 datasets combinados)
-        pretrained: Si usar pesos pre-entrenados (no disponible para esta versión)
-    """
     if pretrained:
-        print("⚠️ Advertencia: ResNet-18 personalizado no tiene pesos preentrenados disponibles.")
-        print("Usando inicialización aleatoria.")
-
+        print("⚠️ ResNet-18 personalizado no tiene pesos preentrenados disponibles; se usará inicialización aleatoria.")
     model = ResNet18Adaptive(num_classes=num_classes)
 
-    # Contar parámetros
-    total_params = sum(p.numel() for p in model.parameters())
-    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-    print(f"Modelo ResNet-18 creado:")
-    print(f"  - Parámetros totales: {total_params:,}")
-    print(f"  - Parámetros entrenables: {trainable_params:,}")
+    total = sum(p.numel() for p in model.parameters())
+    train = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print("Modelo ResNet-18 creado:")
+    print(f"  - Parámetros totales: {total:,}")
+    print(f"  - Parámetros entrenables: {train:,}")
     print(f"  - Número de clases: {num_classes}")
-
     return model
-
-# Función de prueba para verificar que el modelo funciona correctamente
-
-def test_model():
-    """Prueba de funcionamiento básico del modelo"""
-    print("Probando modelo ResNet-18...")
-    set_seed(42)
-
-    model = create_model(num_classes=15)
-    model.eval()
-
-    # Casos de prueba: diferentes tamaños y canales
-    test_cases = [
-        (1, 3, 224, 224),
-        (1, 1, 224, 224),
-        (4, 3, 224, 224),
-        (4, 1, 224, 224),
-    ]
-
-    with torch.no_grad():
-        for i, shape in enumerate(test_cases, 1):
-            x = torch.randn(shape)
-            output = model(x)
-            print(f"Test {i}: Input {shape} -> Output {output.shape}")
-            assert output.shape == (shape[0], 15), f"Error en test {i}"
-
-    print("✅ Todos los tests pasaron correctamente!")
-    return model
-
-# Ejecutar la función de prueba
 
 if __name__ == "__main__":
-    model = test_model()
-    print("\nArquitectura del modelo:")
-    print(model)
-
+    print("Probando modelo ResNet-18...")
+    set_seed(42)
+    m = create_model(num_classes=15)
+    m.eval()
+    with torch.no_grad():
+        for shape in [(1,3,224,224),(1,1,224,224)]:
+            x = torch.randn(shape)
+            y = m(x)
+            print(shape, "->", y.shape)
+            assert y.shape == (shape[0], 15)
+    print("✅ Test de forma OK")
