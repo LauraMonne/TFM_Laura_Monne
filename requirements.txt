@@ -20,5 +20,11 @@ Pillow>=9.2.0
 tqdm>=4.64.0
 tensorboard>=2.10.0
 
+# --- Explicabilidad (XAI) ---
+grad-cam>=1.4.6
+captum>=0.6.0
+quantus>=0.4.0
+
 # --- Utilidades adicionales ---
 jsonschema>=4.0.0
+opencv-python>=4.8.0
