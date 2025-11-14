@@ -494,7 +494,7 @@ def main():
         )
 
     num_classes = 15
-    num_samples = 20  # número de imágenes de test a explicar
+    num_samples = 2000  # número de imágenes de test a explicar
 
     # ----- Cargar modelo entrenado -----
     model = load_trained_model(model_path, device, num_classes=num_classes)
