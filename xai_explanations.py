@@ -1,18 +1,19 @@
 """
-Script de Explicabilidad (XAI) para ResNet-18 - MedMNIST
+Script de Explicabilidad (XAI) para ResNet-18 entrenado sobre BloodMNIST,
+RetinaMNIST y BreastMNIST (MedMNIST v2).
 
-Implementa métodos de explicabilidad según la memoria del TFM:
-- Grad-CAM y Grad-CAM++
-- Integrated Gradients (IG)
-- Saliency Maps (Vanilla Saliency)
+Implementa:
+- Grad-CAM
+- Grad-CAM++
+- Integrated Gradients
+- Saliency Maps
 
 Genera:
-- Mapas PNG en outputs/
+- Mapas de atribución (PNG) en outputs/
 - Metadatos en outputs/explanations_results.json
 
-La parte de evaluación cuantitativa con Quantus queda preparada pero
-simplificada para evitar problemas de versiones. No se fuerza el uso
-de Quantus si la API no es compatible.
+La evaluación cuantitativa con Quantus se recomienda hacerla en un notebook
+dedicado, cargando los mapas generados por este script.
 """
 
 import os
@@ -28,7 +29,9 @@ import matplotlib.pyplot as plt
 
 warnings.filterwarnings("ignore")
 
-# ====== Librerías externas de XAI ======
+# -------------------------
+# Dependencias XAI
+# -------------------------
 try:
     from pytorch_grad_cam import GradCAM, GradCAMPlusPlus
     from pytorch_grad_cam.utils.image import show_cam_on_image
@@ -44,24 +47,20 @@ except ImportError:
     CAPTUM_AVAILABLE = False
     print("⚠️ captum no disponible. Instala con: pip install captum")
 
-try:
-    import quantus
-    QUANTUS_AVAILABLE = True
-except ImportError:
-    QUANTUS_AVAILABLE = False
-    print("⚠️ quantus no disponible. Instala con: pip install quantus")
-
-# ====== Módulos propios del repo ======
+# -------------------------
+# Módulos propios del repo
+# -------------------------
 from prepare_data import load_datasets
-from resnet18 import create_model
 from data_utils import create_data_loaders_fixed
+from resnet18 import create_model
 
 
 # ============================================================
-#  Utilidades
+# Utilidades generales
 # ============================================================
 
-def _ensure_dirs():
+def ensure_dirs():
+    """Crear estructura de carpetas de salida."""
     os.makedirs("outputs", exist_ok=True)
     os.makedirs("outputs/gradcam", exist_ok=True)
     os.makedirs("outputs/gradcampp", exist_ok=True)
@@ -69,395 +68,378 @@ def _ensure_dirs():
     os.makedirs("outputs/saliency", exist_ok=True)
 
 
-def _denormalize_image(
-    img_tensor,
-    mean=(0.485, 0.456, 0.406),
-    std=(0.229, 0.224, 0.225),
-):
-    """
-    Desnormaliza un tensor (1, C, H, W) o (C, H, W) a una imagen numpy (H, W, 3)
-    en rango [0,1], lista para show_cam_on_image.
-    """
-    if isinstance(img_tensor, torch.Tensor):
-        img = img_tensor.clone().detach().cpu()
-    else:
-        img = torch.tensor(img_tensor).clone().detach()
+def load_trained_model(model_path: str, device: torch.device, num_classes: int = 15) -> nn.Module:
+    """Cargar el modelo entrenado desde results/best_model.pth."""
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(
+            f"No se encontró el modelo en {model_path}. Ejecuta primero: python train.py"
+        )
 
-    if img.dim() == 4:
-        img = img[0]  # tomar la primera imagen del batch
+    print(f"Cargando modelo desde {model_path}...")
+    model = create_model(num_classes=num_classes)
 
-    # Si es 1 canal, lo expandimos a 3 canales
-    if img.shape[0] == 1:
-        img = img.repeat(3, 1, 1)
+    checkpoint = torch.load(model_path, map_location=device)
+    # train.py guarda {'model_state_dict': ...}
+    state_dict = checkpoint.get("model_state_dict", checkpoint)
+    model.load_state_dict(state_dict)
 
-    for c, (m, s) in enumerate(zip(mean, std)):
-        img[c].mul_(s).add_(m)
+    model.to(device)
+    model.eval()
+    print("✅ Modelo cargado correctamente.\n")
+    return model
 
-    img = torch.clamp(img, 0.0, 1.0)
-    img_np = img.permute(1, 2, 0).numpy()  # (H, W, C)
-    return img_np.astype(np.float32)
+
+def get_test_loader(batch_size: int = 1, num_workers: int = 0, seed: int = 42):
+    """Cargar datasets MedMNIST y devolver solo el test_loader."""
+    print("Cargando datos de test...")
+    datasets = load_datasets("./data", target_size=224)
+
+    train_loader, val_loader, test_loader = create_data_loaders_fixed(
+        datasets=datasets,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        seed=seed,
+    )
+    return test_loader
 
 
 # ============================================================
-#  Clase principal de explicabilidad
+# Clase principal de explicabilidad
 # ============================================================
 
 class XAIExplainer:
     def __init__(self, model: nn.Module, device: torch.device, num_classes: int = 15):
-        self.model = model.to(device)
-        self.model.eval()
+        self.model = model
         self.device = device
         self.num_classes = num_classes
 
-        _ensure_dirs()
+        self.model.eval()
+        ensure_dirs()
 
-        # Métodos Captum (si están disponibles)
+        # Inicializar métodos de Captum si están disponibles
         if CAPTUM_AVAILABLE:
-            try:
-                self.ig = IntegratedGradients(self.model)
-                self.saliency = Saliency(self.model)
-            except Exception as e:
-                print(f"⚠️ Error inicializando Captum: {e}")
-                self.ig = None
-                self.saliency = None
+            self.ig = IntegratedGradients(self.model)
+            self.saliency = Saliency(self.model)
         else:
             self.ig = None
             self.saliency = None
 
-    # ----------------- Grad-CAM helpers -----------------
+    # -------------------------
+    # Utilidades internas
+    # -------------------------
 
-    def _get_gradcam_target(self, input_tensor):
+    def _denormalize(self, img_tensor: torch.Tensor,
+                     mean=(0.485, 0.456, 0.406),
+                     std=(0.229, 0.224, 0.225)) -> np.ndarray:
         """
-        Devuelve (modelo_base, [layer_target]) para Grad-CAM.
-        Tiene en cuenta si el modelo tiene atributos rgb_model/gray_model.
+        Desnormaliza un tensor imagen 3xHxW a numpy HxWx3 en [0,1] (para visualización).
         """
-        # input_tensor: (1, C, H, W)
-        c = input_tensor.shape[1]
+        img = img_tensor.detach().cpu().clone()
+        if img.dim() == 4:
+            img = img[0]
 
-        # Caso modelo adaptativo con rgb_model / gray_model
-        if hasattr(self.model, "rgb_model") and c == 3:
-            return self.model.rgb_model, [self.model.rgb_model.layer4]
-        if hasattr(self.model, "gray_model") and c == 1:
-            return self.model.gray_model, [self.model.gray_model.layer4]
+        for c, (m, s) in enumerate(zip(mean, std)):
+            img[c].mul_(s).add_(m)
 
-        # Caso ResNet-18 estándar
+        img = torch.clamp(img, 0.0, 1.0)
+        img_np = img.permute(1, 2, 0).numpy()  # HWC
+        return img_np
+
+    def _get_target_layer(self):
+        """
+        Devuelve la última capa convolucional para Grad-CAM.
+        Asumimos un modelo tipo torchvision.models.resnet18.
+        """
         if hasattr(self.model, "layer4"):
-            return self.model, [self.model.layer4]
+            # Último bloque de layer4
+            layer4 = self.model.layer4
+            # Puede ser Sequential -> coger el último
+            if isinstance(layer4, nn.Sequential):
+                return [layer4[-1]]
+            return [layer4]
+        # Fallback: intentar usar la penúltima capa
+        for name, module in reversed(self.model._modules.items()):
+            if isinstance(module, nn.Sequential):
+                return [module]
+        raise RuntimeError("No se pudo encontrar una capa convolucional para Grad-CAM.")
 
-        # Fallback (no debería ocurrir)
-        return self.model, [self.model]
+    class _ClassTarget:
+        """Target para Grad-CAM compatible con salidas 1D o 2D."""
+        def __init__(self, class_idx: int):
+            self.class_idx = class_idx
 
-    def generate_gradcam(self, input_tensor, target_class: int, save_path: str | None):
-        """
-        Genera Grad-CAM y devuelve (overlay_img, heatmap_2d)
-        """
+        def __call__(self, model_output):
+            # model_output puede ser shape [C] o [B, C]
+            if model_output.dim() == 1:
+                return model_output[self.class_idx]
+            else:
+                return model_output[:, self.class_idx]
+
+    # -------------------------
+    # Métodos de explicabilidad
+    # -------------------------
+
+    def generate_gradcam(self, input_tensor: torch.Tensor,
+                         target_class: int,
+                         save_path: str | None = None):
+        """Generar Grad-CAM y devolver (overlay, heatmap)."""
         if not GRAD_CAM_AVAILABLE:
+            print("⚠️ Grad-CAM no disponible (faltan dependencias).")
             return None
 
         try:
-            input_tensor = input_tensor.to(self.device)
-            grad_model, target_layers = self._get_gradcam_target(input_tensor)
+            target_layers = self._get_target_layer()
 
             cam = GradCAM(
-                model=grad_model,
+                model=self.model,
                 target_layers=target_layers,
+                reshape_transform=None
             )
 
-            class ClassTarget:
-                def __init__(self, cls_idx):
-                    self.cls_idx = cls_idx
-
-                def __call__(self, model_output):
-                    return model_output[:, self.cls_idx]
-
+            targets = [self._ClassTarget(target_class)]
             grayscale_cam = cam(
                 input_tensor=input_tensor,
-                targets=[ClassTarget(target_class)],
-                eigen_smooth=False,
-                aug_smooth=False,
-            )  # (1, H, W)
+                targets=targets,
+            )  # shape: (N, H, W)
 
-            # Imagen base desnormalizada
-            rgb_img = _denormalize_image(input_tensor)
-            overlay = show_cam_on_image(rgb_img, grayscale_cam[0], use_rgb=True)
+            heatmap = grayscale_cam[0]  # HxW
+
+            rgb_img = self._denormalize(input_tensor)
+            if rgb_img.ndim == 2:
+                rgb_img = np.stack([rgb_img] * 3, axis=-1)
+
+            overlay = show_cam_on_image(rgb_img.astype(np.float32), heatmap, use_rgb=True)
 
             if save_path is not None:
                 plt.imsave(save_path, overlay)
 
-            return overlay, grayscale_cam[0]
+            return overlay, heatmap
+
         except Exception as e:
             print(f"⚠️ Error en Grad-CAM: {e}")
             return None
 
-    def generate_gradcampp(self, input_tensor, target_class: int, save_path: str | None):
-        """
-        Genera Grad-CAM++ y devuelve (overlay_img, heatmap_2d)
-        """
+    def generate_gradcampp(self, input_tensor: torch.Tensor,
+                           target_class: int,
+                           save_path: str | None = None):
+        """Generar Grad-CAM++ y devolver (overlay, heatmap)."""
         if not GRAD_CAM_AVAILABLE:
             return None
 
         try:
-            input_tensor = input_tensor.to(self.device)
-            grad_model, target_layers = self._get_gradcam_target(input_tensor)
+            target_layers = self._get_target_layer()
 
-            campp = GradCAMPlusPlus(
-                model=grad_model,
+            cam = GradCAMPlusPlus(
+                model=self.model,
                 target_layers=target_layers,
+                reshape_transform=None
             )
 
-            class ClassTarget:
-                def __init__(self, cls_idx):
-                    self.cls_idx = cls_idx
-
-                def __call__(self, model_output):
-                    return model_output[:, self.cls_idx]
-
-            grayscale_cam = campp(
+            targets = [self._ClassTarget(target_class)]
+            grayscale_cam = cam(
                 input_tensor=input_tensor,
-                targets=[ClassTarget(target_class)],
-                eigen_smooth=False,
-                aug_smooth=False,
+                targets=targets,
             )
 
-            rgb_img = _denormalize_image(input_tensor)
-            overlay = show_cam_on_image(rgb_img, grayscale_cam[0], use_rgb=True)
+            heatmap = grayscale_cam[0]
+
+            rgb_img = self._denormalize(input_tensor)
+            if rgb_img.ndim == 2:
+                rgb_img = np.stack([rgb_img] * 3, axis=-1)
+
+            overlay = show_cam_on_image(rgb_img.astype(np.float32), heatmap, use_rgb=True)
 
             if save_path is not None:
                 plt.imsave(save_path, overlay)
 
-            return overlay, grayscale_cam[0]
+            return overlay, heatmap
+
         except Exception as e:
             print(f"⚠️ Error en Grad-CAM++: {e}")
             return None
 
-    # ----------------- Integrated Gradients -----------------
-
-    def generate_integrated_gradients(self, input_tensor, target_class: int, save_path: str | None):
-        """
-        Genera mapas de Integrated Gradients.
-        Devuelve (attr_hwc_normalizada, tensor_attrib_original)
-        """
+    def generate_integrated_gradients(self, input_tensor: torch.Tensor,
+                                      target_class: int,
+                                      save_path: str | None = None):
+        """Generar Integrated Gradients (mapa + superposición)."""
         if self.ig is None:
             return None
 
         try:
-            input_tensor = input_tensor.to(self.device)
-            baseline = torch.zeros_like(input_tensor)
+            x = input_tensor.clone().detach().to(self.device)
+            x.requires_grad_(True)
+
+            baseline = torch.zeros_like(x)
 
             attributions = self.ig.attribute(
-                input_tensor,
+                x,
                 baseline,
                 target=target_class,
                 n_steps=50,
-            )  # (1, C, H, W)
+            )  # shape: (1, C, H, W)
 
-            attr = attributions[0].detach().cpu().numpy()  # (C, H, W)
+            attr = attributions[0].detach().cpu().numpy()   # C,H,W
             attr = np.abs(attr)
+            attr = attr / (attr.max() + 1e-8)
 
-            # Pasamos a mapa escalar (H, W) para usar colormap sin problemas
-            attr_scalar = attr.mean(axis=0)  # (H, W)
-            attr_scalar /= (attr_scalar.max() + 1e-8)
+            # Para visualización, colapsamos canales: media sobre C
+            if attr.ndim == 3:
+                attr_vis = attr.mean(axis=0)  # H,W
+            else:
+                attr_vis = attr
 
-            # Imagen base
-            rgb_img = _denormalize_image(input_tensor)  # (H, W, 3)
+            # Normalizar a [0,1]
+            attr_vis = attr_vis / (attr_vis.max() + 1e-8)
+
+            rgb_img = self._denormalize(input_tensor)
+            if rgb_img.ndim == 2:
+                rgb_img = np.stack([rgb_img] * 3, axis=-1)
+
+            # Crear overlay tipo heatmap
+            cmap = plt.cm.jet(attr_vis)[..., :3]  # H,W,3
+            overlay = 0.6 * rgb_img + 0.4 * cmap
+            overlay = np.clip(overlay, 0, 1)
 
             if save_path is not None:
-                fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-
+                fig, axes = plt.subplots(1, 3, figsize=(12, 4))
                 axes[0].imshow(rgb_img)
                 axes[0].set_title("Imagen original")
                 axes[0].axis("off")
 
-                axes[1].imshow(attr_scalar, cmap="magma")
-                axes[1].set_title("Integrated Gradients (escala)")
+                axes[1].imshow(attr_vis, cmap="jet")
+                axes[1].set_title("IG (mapa)")
                 axes[1].axis("off")
 
-                heatmap = plt.cm.magma(attr_scalar)[..., :3]  # (H, W, 3)
-                overlay = 0.6 * rgb_img + 0.4 * heatmap
-                overlay = np.clip(overlay, 0.0, 1.0)
-
                 axes[2].imshow(overlay)
-                axes[2].set_title("Superposición")
+                axes[2].set_title("IG + overlay")
                 axes[2].axis("off")
 
                 plt.tight_layout()
-                plt.savefig(save_path, dpi=150, bbox_inches="tight")
-                plt.close()
+                fig.savefig(save_path, dpi=150)
+                plt.close(fig)
 
-            # También devolvemos versión HWC 3 canales para coherencia
-            attr_hwc = np.repeat(attr_scalar[..., None], 3, axis=2)  # (H,W,3)
-            return attr_hwc, attributions
+            return attr_vis, attributions
+
         except Exception as e:
             print(f"⚠️ Error en Integrated Gradients: {e}")
             return None
 
-    # ----------------- Saliency Map -----------------
-
-    def generate_saliency_map(self, input_tensor, target_class: int, save_path: str | None):
-        """
-        Genera mapas de saliencia (Vanilla Saliency).
-        Devuelve (saliency_hwc_normalizada, tensor_attrib_original)
-        """
+    def generate_saliency(self, input_tensor: torch.Tensor,
+                          target_class: int,
+                          save_path: str | None = None):
+        """Generar Saliency Map (Vanilla)."""
         if self.saliency is None:
             return None
 
         try:
-            input_tensor = input_tensor.to(self.device)
-            input_tensor.requires_grad = True
+            x = input_tensor.clone().detach().to(self.device)
+            x.requires_grad_(True)
 
-            attributions = self.saliency.attribute(
-                input_tensor,
-                target=target_class,
-            )  # (1, C, H, W)
+            self.model.zero_grad()
+            attributions = self.saliency.attribute(x, target=target_class)
 
-            attr = attributions[0].detach().cpu().numpy()  # (C, H, W)
+            attr = attributions[0].detach().cpu().numpy()  # C,H,W
             attr = np.abs(attr)
+            attr = attr / (attr.max() + 1e-8)
 
-            # Mapa escalar
-            attr_scalar = attr.mean(axis=0)  # (H, W)
-            attr_scalar /= (attr_scalar.max() + 1e-8)
+            # Colapsar canales
+            if attr.ndim == 3:
+                attr_vis = attr.mean(axis=0)  # H,W
+            else:
+                attr_vis = attr
 
-            rgb_img = _denormalize_image(input_tensor)
+            attr_vis = attr_vis / (attr_vis.max() + 1e-8)
+
+            rgb_img = self._denormalize(input_tensor)
+            if rgb_img.ndim == 2:
+                rgb_img = np.stack([rgb_img] * 3, axis=-1)
+
+            cmap = plt.cm.hot(attr_vis)[..., :3]
+            overlay = 0.6 * rgb_img + 0.4 * cmap
+            overlay = np.clip(overlay, 0, 1)
 
             if save_path is not None:
-                fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-
+                fig, axes = plt.subplots(1, 3, figsize=(12, 4))
                 axes[0].imshow(rgb_img)
                 axes[0].set_title("Imagen original")
                 axes[0].axis("off")
 
-                axes[1].imshow(attr_scalar, cmap="hot")
-                axes[1].set_title("Saliency (escala)")
+                axes[1].imshow(attr_vis, cmap="hot")
+                axes[1].set_title("Saliency (mapa)")
                 axes[1].axis("off")
 
-                heatmap = plt.cm.hot(attr_scalar)[..., :3]
-                overlay = 0.6 * rgb_img + 0.4 * heatmap
-                overlay = np.clip(overlay, 0.0, 1.0)
-
                 axes[2].imshow(overlay)
-                axes[2].set_title("Superposición")
+                axes[2].set_title("Saliency + overlay")
                 axes[2].axis("off")
 
                 plt.tight_layout()
-                plt.savefig(save_path, dpi=150, bbox_inches="tight")
-                plt.close()
+                fig.savefig(save_path, dpi=150)
+                plt.close(fig)
 
-            saliency_hwc = np.repeat(attr_scalar[..., None], 3, axis=2)
-            return saliency_hwc, attributions
+            return attr_vis, attributions
+
         except Exception as e:
-            print(f"⚠️ Error en Saliency Map: {e}")
+            print(f"⚠️ Error en Saliency: {e}")
             return None
 
-    # ----------------- Wrapper: generar todo para una imagen -----------------
+    # -------------------------
+    # Orquestador para una imagen
+    # -------------------------
 
-    def generate_all_explanations(self, input_tensor, pred_class: int, image_idx: int):
+    def explain_sample(self, input_tensor: torch.Tensor,
+                       true_class: int,
+                       pred_class: int,
+                       idx: int,
+                       save_all: bool = True):
         """
-        Genera Grad-CAM, Grad-CAM++, IG y Saliency para una sola imagen.
-        Devuelve un diccionario con rutas y estados.
+        Genera todas las explicaciones para una sola imagen.
+        Devuelve un diccionario con rutas a los archivos generados.
         """
         results = {}
 
         # Grad-CAM
         if GRAD_CAM_AVAILABLE:
-            gradcam_path = f"outputs/gradcam/img_{image_idx}_class_{pred_class}.png"
-            res_gc = self.generate_gradcam(input_tensor, pred_class, gradcam_path)
-            if res_gc is not None:
+            gradcam_path = f"outputs/gradcam/img_{idx:04d}_pred_{pred_class}.png" if save_all else None
+            gc = self.generate_gradcam(input_tensor, pred_class, gradcam_path)
+            if gc is not None:
                 results["gradcam"] = {
                     "path": gradcam_path,
-                    "status": "success",
+                    "status": "ok",
                 }
-            else:
-                results["gradcam"] = {"status": "error"}
-        else:
-            results["gradcam"] = {"status": "not_available"}
 
-        # Grad-CAM++
-        if GRAD_CAM_AVAILABLE:
-            gradcampp_path = f"outputs/gradcampp/img_{image_idx}_class_{pred_class}.png"
-            res_gcpp = self.generate_gradcampp(input_tensor, pred_class, gradcampp_path)
-            if res_gcpp is not None:
+            gradcampp_path = f"outputs/gradcampp/img_{idx:04d}_pred_{pred_class}.png" if save_all else None
+            gcpp = self.generate_gradcampp(input_tensor, pred_class, gradcampp_path)
+            if gcpp is not None:
                 results["gradcampp"] = {
                     "path": gradcampp_path,
-                    "status": "success",
+                    "status": "ok",
                 }
-            else:
-                results["gradcampp"] = {"status": "error"}
-        else:
-            results["gradcampp"] = {"status": "not_available"}
 
         # Integrated Gradients
         if self.ig is not None:
-            ig_path = f"outputs/integrated_gradients/img_{image_idx}_class_{pred_class}.png"
-            res_ig = self.generate_integrated_gradients(input_tensor, pred_class, ig_path)
-            if res_ig is not None:
+            ig_path = f"outputs/integrated_gradients/img_{idx:04d}_pred_{pred_class}.png" if save_all else None
+            ig = self.generate_integrated_gradients(input_tensor, pred_class, ig_path)
+            if ig is not None:
                 results["integrated_gradients"] = {
                     "path": ig_path,
-                    "status": "success",
+                    "status": "ok",
                 }
-            else:
-                results["integrated_gradients"] = {"status": "error"}
-        else:
-            results["integrated_gradients"] = {"status": "not_available"}
 
         # Saliency
         if self.saliency is not None:
-            sal_path = f"outputs/saliency/img_{image_idx}_class_{pred_class}.png"
-            res_sal = self.generate_saliency_map(input_tensor, pred_class, sal_path)
-            if res_sal is not None:
+            sal_path = f"outputs/saliency/img_{idx:04d}_pred_{pred_class}.png" if save_all else None
+            sal = self.generate_saliency(input_tensor, pred_class, sal_path)
+            if sal is not None:
                 results["saliency"] = {
                     "path": sal_path,
-                    "status": "success",
+                    "status": "ok",
                 }
-            else:
-                results["saliency"] = {"status": "error"}
-        else:
-            results["saliency"] = {"status": "not_available"}
 
         return results
 
 
 # ============================================================
-#  Carga del modelo entrenado
-# ============================================================
-
-def load_trained_model(model_path: str, device: torch.device, num_classes: int = 15):
-    print(f"Cargando modelo desde {model_path}...")
-    model = create_model(num_classes=num_classes)
-    checkpoint = torch.load(model_path, map_location=device)
-    model.load_state_dict(checkpoint["model_state_dict"])
-    model.to(device)
-    model.eval()
-    print("✅ Modelo cargado correctamente.")
-    return model
-
-
-# ============================================================
-#  Evaluación cuantitativa (stub seguro)
-# ============================================================
-
-def evaluate_with_quantus_stub():
-    """
-    Stub MUY simple para evitar errores con versiones de Quantus.
-    Deja constancia en consola de que la evaluación cuantitativa
-    puede hacerse con Quantus, pero no se fuerza aquí para no romper
-    la ejecución del pipeline.
-    """
-    if not QUANTUS_AVAILABLE:
-        print("\nℹ️ Quantus no está instalado: se omite la evaluación cuantitativa automática.")
-        return None
-
-    # Si está instalado pero la API cambia, evitamos errores:
-    print(
-        "\nℹ️ Quantus está instalado, pero por compatibilidad de versiones "
-        "la evaluación cuantitativa detallada no se ejecuta automáticamente "
-        "en este script. Los mapas generados pueden evaluarse con Quantus "
-        "en un notebook dedicado."
-    )
-    return None
-
-
-# ============================================================
-#  main()
+# MAIN
 # ============================================================
 
 def main():
@@ -469,76 +451,70 @@ def main():
     print(f"Dispositivo: {device}")
 
     model_path = "results/best_model.pth"
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(
-            f"❌ No se ha encontrado {model_path}. "
-            f"Ejecuta primero: python train.py"
-        )
-
     num_classes = 15
-    num_samples = 20  # número de imágenes de test a explicar
+    num_samples = 20  # nº de imágenes de test a explicar
 
-    # ----- Cargar modelo entrenado -----
+    # 1) Modelo
     model = load_trained_model(model_path, device, num_classes=num_classes)
 
-    # ----- Cargar datos de test -----
-    print("\nCargando datos de test...")
-    datasets = load_datasets("./data", target_size=224)
-    train_loader, val_loader, test_loader = create_data_loaders_fixed(
-        datasets=datasets,
-        batch_size=1,
-        num_workers=0,
-        seed=42,
-    )
-    del train_loader, val_loader  # solo usamos test
+    # 2) Datos (test)
+    test_loader = get_test_loader(batch_size=1, num_workers=0, seed=42)
 
+    # 3) Explainer
     explainer = XAIExplainer(model, device, num_classes=num_classes)
 
-    # ----- Generar explicaciones -----
+    # 4) Generación de explicaciones
     print(f"\nGenerando explicaciones para {num_samples} muestras de test...")
     from tqdm import tqdm
 
-    all_results = []
+    all_meta = []
 
-    for idx, (data, target) in enumerate(tqdm(test_loader, desc="Generando explicaciones")):
+    for idx, (images, targets) in enumerate(tqdm(test_loader, desc="Generando explicaciones")):
         if idx >= num_samples:
             break
 
-        data = data.to(device)
-        true_class = int(target.item())
+        images = images.to(device)
+        true_class = int(targets.item())
 
         with torch.no_grad():
-            logits = model(data)
+            logits = model(images)
             pred_class = int(logits.argmax(dim=1).item())
 
-        res = explainer.generate_all_explanations(
-            input_tensor=data,
+        sample_results = explainer.explain_sample(
+            input_tensor=images,
+            true_class=true_class,
             pred_class=pred_class,
-            image_idx=idx,
+            idx=idx,
+            save_all=True,
         )
 
-        all_results.append(
+        all_meta.append(
             {
-                "image_idx": idx,
+                "sample_idx": idx,
                 "true_class": true_class,
                 "pred_class": pred_class,
-                "methods": res,
+                "results": sample_results,
             }
         )
 
-    # ----- Guardar metadatos -----
+    # 5) Guardar metadatos
     print("\nGuardando metadatos de explicabilidad...")
     os.makedirs("outputs", exist_ok=True)
-    with open("outputs/explanations_results.json", "w") as f:
-        json.dump(all_results, f, indent=2)
+    meta_path = "outputs/explanations_results.json"
+    with open(meta_path, "w") as f:
+        json.dump(all_meta, f, indent=2)
+    print(f"Metadatos guardados en: {meta_path}")
 
-    # ----- Evaluación cuantitativa (stub) -----
-    evaluate_with_quantus_stub()
+    print(
+        "\nℹ️ Para la evaluación cuantitativa (Faithfulness, Robustness, etc.) "
+        "se recomienda usar Quantus desde un notebook, cargando el modelo y "
+        "los mapas generados en 'outputs/'."
+    )
 
     print("\n" + "=" * 60)
     print("✅ EXPLICABILIDAD COMPLETADA")
     print("=" * 60)
-    print("Mapas guardados en 'outputs/':")
+    print("Mapas guardados en:")
     print("  - Grad-CAM:             outputs/gradcam/")
     print("  - Grad-CAM++:           outputs/gradcampp/")
     print("  - Integrated Gradients: outputs/integrated_gradients/")
