@@ -35,9 +35,9 @@ El script está configurado para:
 
 ### Cambiar número de muestras
 
-Editar línea 466 en `xai_explanations.py`:
+Editar línea 497 en `xai_explanations.py`:
 ```python
-num_samples = 20  # Cambiar a número deseado
+num_samples = 20  # número de imágenes de test a explicar
 ```
 
 ## 📊 Métodos Implementados
@@ -64,7 +64,11 @@ num_samples = 20  # Cambiar a número deseado
 
 ## 📈 Evaluación Cuantitativa (Quantus)
 
-### Métricas Evaluadas
+**Nota importante**: El script actual NO ejecuta la evaluación cuantitativa automáticamente. La función `evaluate_with_quantus_stub()` solo informa sobre la disponibilidad de Quantus. La evaluación cuantitativa debe realizarse en un notebook dedicado usando los mapas generados por este script.
+
+### Métricas a Evaluar (en notebook separado)
+
+Para evaluar los mapas generados, puedes usar Quantus en un notebook con las siguientes métricas:
 
 1. **Faithfulness (Fidelidad)**
    - Métrica: Faithfulness Correlation
@@ -91,24 +95,18 @@ num_samples = 20  # Cambiar a número deseado
    - Determina precisión espacial de la explicación
    - Rango: [0, 1] (mayor es mejor)
 
-### Resultados
+### Cómo Evaluar con Quantus
 
-Los resultados de Quantus se guardan en:
-- `outputs/quantus_evaluation.json`
+1. Ejecutar este script para generar los mapas: `python xai_explanations.py`
+2. Crear un notebook Jupyter para la evaluación cuantitativa
+3. Cargar los mapas generados desde `outputs/`
+4. Usar la librería Quantus para evaluar cada método según las 5 dimensiones
 
-Formato:
-```json
-{
-  "gradcam": {
-    "faithfulness": {"mean": 0.75, "std": 0.12},
-    "robustness": {"mean": 0.15, "std": 0.05},
-    "complexity": {"mean": 2.3, "std": 0.4},
-    "randomization": {"mean": 0.82, "std": 0.08},
-    "localization": {"mean": 0.68, "std": 0.15}
-  },
-  "integrated_gradients": {...},
-  "saliency": {...}
-}
+**Ejemplo de evaluación** (en notebook):
+```python
+import quantus
+# Cargar mapas generados
+# Evaluar con las métricas definidas
 ```
 
 ## 📁 Estructura de Salida
@@ -123,8 +121,7 @@ outputs/
 │   └── img_*_class_*.png
 ├── saliency/                   # Mapas Saliency
 │   └── img_*_class_*.png
-├── explanations_results.json   # Metadatos de explicaciones
-└── quantus_evaluation.json     # Resultados de evaluación cuantitativa
+└── explanations_results.json   # Metadatos de explicaciones
 ```
 
 ## 🐛 Solución de Problemas
@@ -145,9 +142,13 @@ outputs/
 - **Causa**: Librería no instalada
 - **Solución**: `pip install quantus`
 
+### Error: "too many indices for tensor of dimension 1"
+- **Causa**: Problema con el callback de Grad-CAM (ya corregido en versión actual)
+- **Solución**: Asegúrate de tener la versión más reciente del script desde GitHub
+
 ### Error en evaluación Quantus
-- **Causa**: Puede ser por memoria insuficiente o formato de datos
-- **Solución**: Reducir `num_samples` o verificar formato de imágenes
+- **Nota**: La evaluación cuantitativa no se ejecuta automáticamente en este script
+- **Solución**: Realizar la evaluación en un notebook dedicado usando los mapas generados
 
 ## 📚 Referencias
 
@@ -161,13 +162,17 @@ outputs/
 
 - El modelo ResNet-18 adaptativo maneja automáticamente imágenes RGB y escala de grises
 - Las explicaciones se generan para la clase predicha por el modelo
-- La evaluación con Quantus puede tardar varios minutos según el número de muestras
+- **La evaluación cuantitativa con Quantus NO se ejecuta automáticamente** en este script
+  - El script solo genera los mapas de explicabilidad
+  - La evaluación cuantitativa debe hacerse en un notebook dedicado
 - Se recomienda usar GPU para acelerar la generación de explicaciones
+- El callback de Grad-CAM está corregido para manejar correctamente tensores 1D y 2D
 
 ## 🔄 Próximos Pasos
 
-1. Analizar resultados de Quantus para comparar métodos
-2. Generar visualizaciones comparativas
-3. Incorporar resultados en la memoria del TFM
-4. Optimizar parámetros de evaluación según necesidades
+1. **Ejecutar el script**: `python xai_explanations.py` para generar mapas
+2. **Crear notebook de evaluación**: Implementar evaluación cuantitativa con Quantus
+3. Analizar resultados de Quantus para comparar métodos
+4. Generar visualizaciones comparativas
+5. Incorporar resultados en la memoria del TFM
 
