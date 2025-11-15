@@ -1,6 +1,7 @@
 """
 Script de Explicabilidad (XAI) para ResNet-18 - MedMNIST
-Implementa métodos de explicabilidad según la memoria del TFM:
+
+Métodos implementados:
 - Grad-CAM y Grad-CAM++
 - Integrated Gradients (IG)
 - Saliency Maps (Vanilla Saliency)
@@ -9,19 +10,19 @@ Genera:
 - Mapas PNG en outputs/
 - Metadatos en outputs/explanations_results.json
 
-La parte de evaluación cuantitativa con Quantus queda preparada pero
-simplificada para evitar problemas de versiones. No se fuerza el uso
-de Quantus si la API no es compatible.
 """
 
 import os
 import json
 import warnings
+from typing import Dict, List, Tuple
+
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
+
 warnings.filterwarnings("ignore")
 
 # ====== Librerías externas de XAI ======
@@ -41,7 +42,7 @@ except ImportError:
     print("⚠️ captum no disponible. Instala con: pip install captum")
 
 try:
-    import quantus
+    import quantus  # solo para dejar constancia; no se usa directamente aquí
     QUANTUS_AVAILABLE = True
 except ImportError:
     QUANTUS_AVAILABLE = False
@@ -52,9 +53,11 @@ from prepare_data import load_datasets
 from resnet18 import create_model
 from data_utils import create_data_loaders_fixed
 
+
 # ============================================================
-#  Utilidades
+#  Utilidades de directorios e imagen
 # ============================================================
+
 def _ensure_dirs():
     os.makedirs("outputs", exist_ok=True)
     os.makedirs("outputs/gradcam", exist_ok=True)
@@ -62,11 +65,12 @@ def _ensure_dirs():
     os.makedirs("outputs/integrated_gradients", exist_ok=True)
     os.makedirs("outputs/saliency", exist_ok=True)
 
+
 def _denormalize_image(
-    img_tensor,
+    img_tensor: torch.Tensor,
     mean=(0.485, 0.456, 0.406),
     std=(0.229, 0.224, 0.225),
-):
+) -> np.ndarray:
     """
     Desnormaliza un tensor (1, C, H, W) o (C, H, W) a una imagen numpy (H, W, 3)
     en rango [0,1], lista para show_cam_on_image.
@@ -88,12 +92,13 @@ def _denormalize_image(
 
     img = torch.clamp(img, 0.0, 1.0)
     img_np = img.permute(1, 2, 0).numpy()  # (H, W, C)
-
     return img_np.astype(np.float32)
+
 
 # ============================================================
 #  Clase principal de explicabilidad
 # ============================================================
+
 class XAIExplainer:
     def __init__(self, model: nn.Module, device: torch.device, num_classes: int = 15):
         self.model = model.to(device)
@@ -116,12 +121,11 @@ class XAIExplainer:
             self.saliency = None
 
     # ----------------- Grad-CAM helpers -----------------
-    def _get_gradcam_target(self, input_tensor):
+    def _get_gradcam_target(self, input_tensor: torch.Tensor):
         """
         Devuelve (modelo_base, [layer_target]) para Grad-CAM.
         Tiene en cuenta si el modelo tiene atributos rgb_model/gray_model.
         """
-        # input_tensor: (1, C, H, W)
         c = input_tensor.shape[1]
 
         # Caso modelo adaptativo con rgb_model / gray_model
@@ -134,10 +138,34 @@ class XAIExplainer:
         if hasattr(self.model, "layer4"):
             return self.model, [self.model.layer4]
 
-        # Fallback (no debería ocurrir)
+        # Fallback
         return self.model, [self.model]
 
-    def generate_gradcam(self, input_tensor, target_class: int, save_path: str | None):
+    def _class_target_fn(self, cls_idx: int):
+        """
+        Devuelve un callable que extrae la logit de la clase cls_idx del output del modelo.
+        Maneja outputs 1D o 2D para compatibilidad con distintas versiones de pytorch-grad-cam.
+        """
+        class ClassTarget:
+            def __init__(self, idx: int):
+                self.idx = idx
+
+            def __call__(self, model_output: torch.Tensor):
+                if model_output.dim() == 1:
+                    # (num_classes,)
+                    return model_output[self.idx]
+                elif model_output.dim() == 2:
+                    # (batch, num_classes)
+                    return model_output[:, self.idx]
+                else:
+                    flat = model_output.flatten()
+                    if flat.numel() > self.idx:
+                        return flat[self.idx]
+                    return flat[0]
+
+        return ClassTarget(cls_idx)
+
+    def generate_gradcam(self, input_tensor: torch.Tensor, target_class: int, save_path: str | None):
         """
         Genera Grad-CAM y devuelve (overlay_img, heatmap_2d)
         """
@@ -146,7 +174,6 @@ class XAIExplainer:
 
         try:
             input_tensor = input_tensor.to(self.device)
-
             grad_model, target_layers = self._get_gradcam_target(input_tensor)
 
             cam = GradCAM(
@@ -154,37 +181,14 @@ class XAIExplainer:
                 target_layers=target_layers,
             )
 
-            class ClassTarget:
-                def __init__(self, cls_idx):
-                    self.cls_idx = cls_idx
-
-                def __call__(self, model_output):
-                    # CORRECCIÓN: Manejar diferentes formas de output
-                    # Puede ser 1D (num_classes,) o 2D (batch, num_classes)
-                    if model_output.dim() == 1:
-                        # Tensor 1D: (num_classes,)
-                        return model_output[self.cls_idx]
-                    elif model_output.dim() == 2:
-                        # Tensor 2D: (batch, num_classes)
-                        return model_output[:, self.cls_idx]
-                    else:
-                        # Fallback: aplanar y tomar el índice correspondiente
-                        flat = model_output.flatten()
-                        if flat.numel() > self.cls_idx:
-                            return flat[self.cls_idx]
-                        else:
-                            return flat[0] if flat.numel() > 0 else model_output[0]
-
             grayscale_cam = cam(
                 input_tensor=input_tensor,
-                targets=[ClassTarget(target_class)],
+                targets=[self._class_target_fn(target_class)],
                 eigen_smooth=False,
                 aug_smooth=False,
             )  # (1, H, W)
 
-            # Imagen base desnormalizada
             rgb_img = _denormalize_image(input_tensor)
-
             overlay = show_cam_on_image(rgb_img, grayscale_cam[0], use_rgb=True)
 
             if save_path is not None:
@@ -194,11 +198,9 @@ class XAIExplainer:
 
         except Exception as e:
             print(f"⚠️ Error en Grad-CAM: {e}")
-            import traceback
-            traceback.print_exc()
             return None
 
-    def generate_gradcampp(self, input_tensor, target_class: int, save_path: str | None):
+    def generate_gradcampp(self, input_tensor: torch.Tensor, target_class: int, save_path: str | None):
         """
         Genera Grad-CAM++ y devuelve (overlay_img, heatmap_2d)
         """
@@ -207,7 +209,6 @@ class XAIExplainer:
 
         try:
             input_tensor = input_tensor.to(self.device)
-
             grad_model, target_layers = self._get_gradcam_target(input_tensor)
 
             campp = GradCAMPlusPlus(
@@ -215,26 +216,9 @@ class XAIExplainer:
                 target_layers=target_layers,
             )
 
-            class ClassTarget:
-                def __init__(self, cls_idx):
-                    self.cls_idx = cls_idx
-
-                def __call__(self, model_output):
-                    # CORRECCIÓN: Manejar diferentes formas de output
-                    if model_output.dim() == 1:
-                        return model_output[self.cls_idx]
-                    elif model_output.dim() == 2:
-                        return model_output[:, self.cls_idx]
-                    else:
-                        flat = model_output.flatten()
-                        if flat.numel() > self.cls_idx:
-                            return flat[self.cls_idx]
-                        else:
-                            return flat[0] if flat.numel() > 0 else model_output[0]
-
             grayscale_cam = campp(
                 input_tensor=input_tensor,
-                targets=[ClassTarget(target_class)],
+                targets=[self._class_target_fn(target_class)],
                 eigen_smooth=False,
                 aug_smooth=False,
             )
@@ -249,12 +233,10 @@ class XAIExplainer:
 
         except Exception as e:
             print(f"⚠️ Error en Grad-CAM++: {e}")
-            import traceback
-            traceback.print_exc()
             return None
 
     # ----------------- Integrated Gradients -----------------
-    def generate_integrated_gradients(self, input_tensor, target_class: int, save_path: str | None):
+    def generate_integrated_gradients(self, input_tensor: torch.Tensor, target_class: int, save_path: str | None):
         """
         Genera mapas de Integrated Gradients.
         Devuelve (attr_hwc_normalizada, tensor_attrib_original)
@@ -264,7 +246,6 @@ class XAIExplainer:
 
         try:
             input_tensor = input_tensor.to(self.device)
-
             baseline = torch.zeros_like(input_tensor)
 
             attributions = self.ig.attribute(
@@ -277,12 +258,11 @@ class XAIExplainer:
             attr = attributions[0].detach().cpu().numpy()  # (C, H, W)
             attr = np.abs(attr)
 
-            # Pasamos a mapa escalar (H, W) para usar colormap sin problemas
+            # Mapa escalar
             attr_scalar = attr.mean(axis=0)  # (H, W)
             attr_scalar /= (attr_scalar.max() + 1e-8)
 
-            # Imagen base
-            rgb_img = _denormalize_image(input_tensor)  # (H, W, 3)
+            rgb_img = _denormalize_image(input_tensor)
 
             if save_path is not None:
                 fig, axes = plt.subplots(1, 3, figsize=(15, 5))
@@ -292,7 +272,7 @@ class XAIExplainer:
                 axes[1].imshow(attr_scalar, cmap="magma")
                 axes[1].set_title("Integrated Gradients (escala)")
                 axes[1].axis("off")
-                heatmap = plt.cm.magma(attr_scalar)[..., :3]  # (H, W, 3)
+                heatmap = plt.cm.magma(attr_scalar)[..., :3]
                 overlay = 0.6 * rgb_img + 0.4 * heatmap
                 overlay = np.clip(overlay, 0.0, 1.0)
                 axes[2].imshow(overlay)
@@ -302,19 +282,15 @@ class XAIExplainer:
                 plt.savefig(save_path, dpi=150, bbox_inches="tight")
                 plt.close()
 
-            # También devolvemos versión HWC 3 canales para coherencia
-            attr_hwc = np.repeat(attr_scalar[..., None], 3, axis=2)  # (H,W,3)
-
+            attr_hwc = np.repeat(attr_scalar[..., None], 3, axis=2)
             return attr_hwc, attributions
 
         except Exception as e:
             print(f"⚠️ Error en Integrated Gradients: {e}")
-            import traceback
-            traceback.print_exc()
             return None
 
     # ----------------- Saliency Map -----------------
-    def generate_saliency_map(self, input_tensor, target_class: int, save_path: str | None):
+    def generate_saliency_map(self, input_tensor: torch.Tensor, target_class: int, save_path: str | None):
         """
         Genera mapas de saliencia (Vanilla Saliency).
         Devuelve (saliency_hwc_normalizada, tensor_attrib_original)
@@ -324,7 +300,6 @@ class XAIExplainer:
 
         try:
             input_tensor = input_tensor.to(self.device)
-
             input_tensor.requires_grad = True
 
             attributions = self.saliency.attribute(
@@ -332,11 +307,10 @@ class XAIExplainer:
                 target=target_class,
             )  # (1, C, H, W)
 
-            attr = attributions[0].detach().cpu().numpy()  # (C, H, W)
+            attr = attributions[0].detach().cpu().numpy()
             attr = np.abs(attr)
 
-            # Mapa escalar
-            attr_scalar = attr.mean(axis=0)  # (H, W)
+            attr_scalar = attr.mean(axis=0)
             attr_scalar /= (attr_scalar.max() + 1e-8)
 
             rgb_img = _denormalize_image(input_tensor)
@@ -360,17 +334,14 @@ class XAIExplainer:
                 plt.close()
 
             saliency_hwc = np.repeat(attr_scalar[..., None], 3, axis=2)
-
             return saliency_hwc, attributions
 
         except Exception as e:
             print(f"⚠️ Error en Saliency Map: {e}")
-            import traceback
-            traceback.print_exc()
             return None
 
     # ----------------- Wrapper: generar todo para una imagen -----------------
-    def generate_all_explanations(self, input_tensor, pred_class: int, image_idx: int):
+    def generate_all_explanations(self, input_tensor: torch.Tensor, pred_class: int, image_idx: int) -> Dict:
         """
         Genera Grad-CAM, Grad-CAM++, IG y Saliency para una sola imagen.
         Devuelve un diccionario con rutas y estados.
@@ -381,14 +352,10 @@ class XAIExplainer:
         if GRAD_CAM_AVAILABLE:
             gradcam_path = f"outputs/gradcam/img_{image_idx}_class_{pred_class}.png"
             res_gc = self.generate_gradcam(input_tensor, pred_class, gradcam_path)
-            if res_gc is not None:
-                results["gradcam"] = {
-                    "path": gradcam_path,
-                    "status": "success",
-                }
-            else:
-                results["gradcam"] = {"status": "error"}
-
+            results["gradcam"] = (
+                {"path": gradcam_path, "status": "success"} if res_gc is not None
+                else {"status": "error"}
+            )
         else:
             results["gradcam"] = {"status": "not_available"}
 
@@ -396,14 +363,10 @@ class XAIExplainer:
         if GRAD_CAM_AVAILABLE:
             gradcampp_path = f"outputs/gradcampp/img_{image_idx}_class_{pred_class}.png"
             res_gcpp = self.generate_gradcampp(input_tensor, pred_class, gradcampp_path)
-            if res_gcpp is not None:
-                results["gradcampp"] = {
-                    "path": gradcampp_path,
-                    "status": "success",
-                }
-            else:
-                results["gradcampp"] = {"status": "error"}
-
+            results["gradcampp"] = (
+                {"path": gradcampp_path, "status": "success"} if res_gcpp is not None
+                else {"status": "error"}
+            )
         else:
             results["gradcampp"] = {"status": "not_available"}
 
@@ -411,14 +374,10 @@ class XAIExplainer:
         if self.ig is not None:
             ig_path = f"outputs/integrated_gradients/img_{image_idx}_class_{pred_class}.png"
             res_ig = self.generate_integrated_gradients(input_tensor, pred_class, ig_path)
-            if res_ig is not None:
-                results["integrated_gradients"] = {
-                    "path": ig_path,
-                    "status": "success",
-                }
-            else:
-                results["integrated_gradients"] = {"status": "error"}
-
+            results["integrated_gradients"] = (
+                {"path": ig_path, "status": "success"} if res_ig is not None
+                else {"status": "error"}
+            )
         else:
             results["integrated_gradients"] = {"status": "not_available"}
 
@@ -426,23 +385,21 @@ class XAIExplainer:
         if self.saliency is not None:
             sal_path = f"outputs/saliency/img_{image_idx}_class_{pred_class}.png"
             res_sal = self.generate_saliency_map(input_tensor, pred_class, sal_path)
-            if res_sal is not None:
-                results["saliency"] = {
-                    "path": sal_path,
-                    "status": "success",
-                }
-            else:
-                results["saliency"] = {"status": "error"}
-
+            results["saliency"] = (
+                {"path": sal_path, "status": "success"} if res_sal is not None
+                else {"status": "error"}
+            )
         else:
             results["saliency"] = {"status": "not_available"}
 
         return results
 
+
 # ============================================================
 #  Carga del modelo entrenado
 # ============================================================
-def load_trained_model(model_path: str, device: torch.device, num_classes: int = 15):
+
+def load_trained_model(model_path: str, device: torch.device, num_classes: int = 15) -> nn.Module:
     print(f"Cargando modelo desde {model_path}...")
     model = create_model(num_classes=num_classes)
     checkpoint = torch.load(model_path, map_location=device)
@@ -452,32 +409,33 @@ def load_trained_model(model_path: str, device: torch.device, num_classes: int =
     print("✅ Modelo cargado correctamente.")
     return model
 
+
 # ============================================================
 #  Evaluación cuantitativa (stub seguro)
 # ============================================================
+
 def evaluate_with_quantus_stub():
     """
     Stub MUY simple para evitar errores con versiones de Quantus.
     Deja constancia en consola de que la evaluación cuantitativa
-    puede hacerse con Quantus, pero no se fuerza aquí para no romper
-    la ejecución del pipeline.
+    puede hacerse con Quantus, pero no se fuerza aquí.
     """
     if not QUANTUS_AVAILABLE:
         print("\nℹ️ Quantus no está instalado: se omite la evaluación cuantitativa automática.")
-        return None
+        return
 
-    # Si está instalado pero la API cambia, evitamos errores:
     print(
         "\nℹ️ Quantus está instalado, pero por compatibilidad de versiones "
         "la evaluación cuantitativa detallada no se ejecuta automáticamente "
         "en este script. Los mapas generados pueden evaluarse con Quantus "
         "en un notebook dedicado."
     )
-    return None
+
 
 # ============================================================
 #  main()
 # ============================================================
+
 def main():
     print("=" * 60)
     print("EXPLICABILIDAD (XAI) - ResNet-18 MedMNIST")
@@ -494,7 +452,12 @@ def main():
         )
 
     num_classes = 15
-    num_samples = 500  # número de imágenes de test a explicar
+
+    # Nº máximo de explicaciones por dataset (se puede ajustar)
+    max_blood = 300
+    max_retina = 150
+    max_breast = 50
+    total_max = max_blood + max_retina + max_breast  # 500
 
     # ----- Cargar modelo entrenado -----
     model = load_trained_model(model_path, device, num_classes=num_classes)
@@ -502,29 +465,56 @@ def main():
     # ----- Cargar datos de test -----
     print("\nCargando datos de test...")
     datasets = load_datasets("./data", target_size=224)
-    train_loader, val_loader, test_loader = create_data_loaders_fixed(
+    _, _, test_loader = create_data_loaders_fixed(
         datasets=datasets,
         batch_size=1,
         num_workers=0,
         seed=42,
     )
 
-    del train_loader, val_loader  # solo usamos test
-
     explainer = XAIExplainer(model, device, num_classes=num_classes)
 
-    # ----- Generar explicaciones -----
-    print(f"\nGenerando explicaciones para {num_samples} muestras de test...")
+    # ----- Generar explicaciones con muestreo estratificado -----
+    print(f"\nGenerando explicaciones (hasta {total_max} muestras: "
+          f"{max_blood} Blood, {max_retina} Retina, {max_breast} Breast)...")
     from tqdm import tqdm
 
-    all_results = []
+    BLOOD_RANGE = range(0, 8)
+    RETINA_RANGE = range(8, 13)
+    BREAST_RANGE = range(13, 15)
 
-    for idx, (data, target) in enumerate(tqdm(test_loader, desc="Generando explicaciones")):
-        if idx >= num_samples:
+    count_blood = 0
+    count_retina = 0
+    count_breast = 0
+
+    all_results: List[Dict] = []
+    global_idx = 0  # índice para nombrar los ficheros de salida
+
+    for data, target in tqdm(test_loader, desc="Generando explicaciones"):
+        true_class = int(target.item())
+
+        # Decidir a qué dataset pertenece
+        if true_class in BLOOD_RANGE:
+            if count_blood >= max_blood:
+                continue
+            bucket = "blood"
+        elif true_class in RETINA_RANGE:
+            if count_retina >= max_retina:
+                continue
+            bucket = "retina"
+        elif true_class in BREAST_RANGE:
+            if count_breast >= max_breast:
+                continue
+            bucket = "breast"
+        else:
+            # clase fuera de rango esperado
+            continue
+
+        # Si ya hemos llegado al máximo total, paramos
+        if (count_blood + count_retina + count_breast) >= total_max:
             break
 
         data = data.to(device)
-        true_class = int(target.item())
 
         with torch.no_grad():
             logits = model(data)
@@ -533,23 +523,40 @@ def main():
         res = explainer.generate_all_explanations(
             input_tensor=data,
             pred_class=pred_class,
-            image_idx=idx,
+            image_idx=global_idx,  # usamos índice global para nombrar imágenes
         )
 
         all_results.append(
             {
-                "image_idx": idx,
+                "global_idx": global_idx,
+                "bucket": bucket,
                 "true_class": true_class,
                 "pred_class": pred_class,
                 "methods": res,
             }
         )
 
+        global_idx += 1
+        if bucket == "blood":
+            count_blood += 1
+        elif bucket == "retina":
+            count_retina += 1
+        elif bucket == "breast":
+            count_breast += 1
+
     # ----- Guardar metadatos -----
     print("\nGuardando metadatos de explicabilidad...")
     os.makedirs("outputs", exist_ok=True)
     with open("outputs/explanations_results.json", "w") as f:
         json.dump(all_results, f, indent=2)
+
+    print(
+        f"\nResumen de muestras explicadas:"
+        f"\n  BLOODMNIST  (0–7)  : {count_blood}"
+        f"\n  RETINAMNIST (8–12) : {count_retina}"
+        f"\n  BREASTMNIST (13–14): {count_breast}"
+        f"\n  TOTAL              : {count_blood + count_retina + count_breast}"
+    )
 
     # ----- Evaluación cuantitativa (stub) -----
     evaluate_with_quantus_stub()
