@@ -2,7 +2,7 @@
 
 ## 📋 Descripción
 
-Este script implementa métodos de explicabilidad según la memoria del TFM, aplicando diferentes técnicas XAI y evaluándolas cuantitativamente con Quantus.
+Este script implementa los métodos de explicabilidad descritos en la memoria del TFM, generando mapas XAI (Grad-CAM, Grad-CAM++, Integrated Gradients y Saliency) y dejando preparados los artefactos necesarios para su evaluación cuantitativa con Quantus en un notebook independiente.
 
 ## 🔧 Instalación
 
@@ -15,7 +15,7 @@ pip install -r requirements.txt
 ### 2. Verificar instalación
 
 ```bash
-python -c "import grad_cam; import captum; import quantus; print('✅ Todas las librerías instaladas')"
+python -c "import pytorch_grad_cam; from captum.attr import IntegratedGradients, Saliency; import quantus; print('✅ Todas las librerías instaladas')"
 ```
 
 ## 🚀 Uso
@@ -29,16 +29,14 @@ python xai_explanations.py
 ### Configuración
 
 El script está configurado para:
+
 - Cargar el modelo desde `results/best_model.pth`
-- Generar explicaciones para 20 muestras por defecto
+- Generar explicaciones para un máximo de **500 muestras** del conjunto de test,
+  estratificadas por dataset:
+  - 300 de BloodMNIST
+  - 150 de RetinaMNIST
+  - 50 de BreastMNIST
 - Guardar resultados en `outputs/`
-
-### Cambiar número de muestras
-
-Editar línea 497 en `xai_explanations.py`:
-```python
-num_samples = 20  # número de imágenes de test a explicar
-```
 
 ## 📊 Métodos Implementados
 
