@@ -62,7 +62,7 @@ El script está configurado para:
 
 ## 📈 Evaluación Cuantitativa (Quantus)
 
-**Nota importante**: El script actual NO ejecuta la evaluación cuantitativa automáticamente. La función `evaluate_with_quantus_stub()` solo informa sobre la disponibilidad de Quantus. La evaluación cuantitativa debe realizarse en un notebook dedicado usando los mapas generados por este script.
+**Nota importante**: El script `xai_explanations.py` NO ejecuta la evaluación cuantitativa automáticamente. Para ello se ha añadido `quantus_evaluation.py`, descrito en `QUANTUS_README.md`.
 
 ### Métricas a Evaluar (en notebook separado)
 
