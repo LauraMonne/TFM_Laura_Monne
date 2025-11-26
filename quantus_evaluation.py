@@ -10,7 +10,7 @@ Integrated Gradients e Saliency:
 - Localización (Region Perturbation como aproximación del Localization Ratio)
 
 Uso:
-    python quantus_evaluation.py --num_samples 30 --methods gradcam ig saliency
+    python quantus_evaluation.py --num_samples 30 --methods gradcam integrated_gradients saliency
 """
 
 import argparse
@@ -202,6 +202,7 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods):
         logits = model(x_batch)
         preds = logits.argmax(dim=1)
 
+    # Definición de métricas Quantus (adaptadas a la versión actual).
     metrics = {
         "faithfulness": quantus.FaithfulnessCorrelation(
             perturb_baseline="black",
@@ -209,7 +210,6 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods):
         ),
         "robustness": quantus.AvgSensitivity(
             nr_samples=10,
-            perturb_baseline="black",
             lower_bound=0.2,
         ),
         "complexity": quantus.Entropy(),
@@ -237,7 +237,9 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods):
         for metric_name, metric in metrics.items():
             print(f" -> {metric_name}")
             try:
-                mean, std, scores = evaluate_metric(metric, predict_fn, x_batch_np, y_batch_np, a_batch_np)
+                mean, std, scores = evaluate_metric(
+                    metric, predict_fn, x_batch_np, y_batch_np, a_batch_np
+                )
                 method_results[metric_name] = {
                     "mean": mean,
                     "std": std,
@@ -290,4 +292,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
