@@ -2,12 +2,12 @@
 Evaluación cuantitativa de explicabilidad usando Quantus.
 
 Mide 5 dimensiones para Grad-CAM, Grad-CAM++ (opcional),
-Integrated Gradients e Saliency:
+Integrated Gradients y Saliency:
 - Fidelidad (Faithfulness Correlation)
 - Robustez (Average Sensitivity)
-- Complejidad (Entropy, implementada manualmente)
-- Aleatorización (Randomization Test)
-- Localización (Region Perturbation como aproximación del Localization Ratio)
+- Complejidad (Entropy)
+- Aleatorización (Model Parameter Randomisation)
+- Localización (Region Perturbation como aproximación de Localization Ratio)
 
 Uso:
     python quantus_evaluation.py --num_samples 30 --methods gradcam integrated_gradients saliency
@@ -36,6 +36,10 @@ from xai_explanations import (
     load_trained_model,
 )
 
+
+# ============================================================
+#  Argumentos de línea de comandos
+# ============================================================
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -82,6 +86,10 @@ def parse_args():
     return parser.parse_args()
 
 
+# ============================================================
+#  Utilidades de datos
+# ============================================================
+
 def collect_samples(test_loader, num_samples, device):
     """Recopila x_batch, y_batch del conjunto de test."""
     xs, ys = [], []
@@ -114,9 +122,13 @@ def build_predict_fn(model: torch.nn.Module, device: torch.device):
         with torch.no_grad():
             if isinstance(x, np.ndarray):
                 if x.ndim == 4 and x.shape[-1] in (1, 3):
-                    x_tensor = torch.from_numpy(np.transpose(x, (0, 3, 1, 2))).float()
+                    x_tensor = torch.from_numpy(
+                        np.transpose(x, (0, 3, 1, 2))
+                    ).float()
                 else:
-                    raise ValueError("Los datos deben estar en formato (batch, H, W, C).")
+                    raise ValueError(
+                        "Los datos deben estar en formato (batch, H, W, C)."
+                    )
             else:
                 x_tensor = x
             x_tensor = x_tensor.to(device)
@@ -125,6 +137,10 @@ def build_predict_fn(model: torch.nn.Module, device: torch.device):
 
     return predict_fn
 
+
+# ============================================================
+#  Atribuciones XAI (reutiliza XAIExplainer)
+# ============================================================
 
 def expand_heatmap_to_channels(heatmap: np.ndarray, channels: int) -> torch.Tensor:
     """Expande un heatmap HxW a CxHxW repitiendo por canal."""
@@ -148,13 +164,17 @@ def compute_attributions(
         target_class = int(preds[idx].item())
         try:
             if method == "gradcam":
-                result = explainer.generate_gradcam(sample, target_class, save_path=None)
+                result = explainer.generate_gradcam(
+                    sample, target_class, save_path=None
+                )
                 if result is None:
                     raise RuntimeError("Grad-CAM retornó None")
                 _, heatmap = result
                 attr = expand_heatmap_to_channels(heatmap, sample.shape[1])
             elif method == "gradcampp":
-                result = explainer.generate_gradcampp(sample, target_class, save_path=None)
+                result = explainer.generate_gradcampp(
+                    sample, target_class, save_path=None
+                )
                 if result is None:
                     raise RuntimeError("Grad-CAM++ retornó None")
                 _, heatmap = result
@@ -182,6 +202,10 @@ def compute_attributions(
     return torch.stack(attributions, dim=0)
 
 
+# ============================================================
+#  Evaluación con Quantus
+# ============================================================
+
 def evaluate_metric(metric, predict_fn, x_batch_np, y_batch_np, a_batch_np):
     scores = metric(
         model=predict_fn,
@@ -190,29 +214,6 @@ def evaluate_metric(metric, predict_fn, x_batch_np, y_batch_np, a_batch_np):
         a_batch=a_batch_np,
     )
     return float(np.nanmean(scores)), float(np.nanstd(scores)), scores
-
-
-def compute_entropy_complexity(a_batch_np: np.ndarray) -> np.ndarray:
-    """
-    Complejidad (Entropy) implementada manualmente:
-    - Se toma el valor absoluto de las atribuciones.
-    - Se normaliza para que sumen 1 por muestra.
-    - Se calcula la entropía de Shannon de la distribución.
-    """
-    scores = []
-    for i in range(a_batch_np.shape[0]):
-        attr = a_batch_np[i]
-        abs_attr = np.abs(attr).astype(np.float64)
-        flat = abs_attr.flatten()
-        s = flat.sum()
-        if s <= 0:
-            scores.append(0.0)
-            continue
-        p = flat / s
-        p = p[p > 0]
-        entropy = -np.sum(p * np.log(p + 1e-12))
-        scores.append(float(entropy))
-    return np.array(scores, dtype=float)
 
 
 def evaluate_methods(model, explainer, x_batch, y_batch, methods):
@@ -227,16 +228,18 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods):
         logits = model(x_batch)
         preds = logits.argmax(dim=1)
 
-    # Métricas Quantus (sin Entropy, que no está en esta versión).
     metrics = {
         "faithfulness": quantus.FaithfulnessCorrelation(
+            nr_samples=10,
             perturb_baseline="black",
             similarity_func=quantus.similarity_func.correlation_spearman,
         ),
         "robustness": quantus.AvgSensitivity(
             nr_samples=10,
+            perturb_baseline="black",
             lower_bound=0.2,
         ),
+        "complexity": quantus.Entropy(),
         "randomization": quantus.ModelParameterRandomisation(
             layer_order="top_down",
             similarity_func=quantus.similarity_func.correlation_pearson,
@@ -258,23 +261,6 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods):
         a_batch_np = hwc(attr_batch)
         method_results = {}
 
-        # 1) Complejidad (Entropy) calculada a mano
-        print(" -> complexity (entropy)")
-        try:
-            entropy_scores = compute_entropy_complexity(a_batch_np)
-            mean = float(np.nanmean(entropy_scores))
-            std = float(np.nanstd(entropy_scores))
-            method_results["complexity"] = {
-                "mean": mean,
-                "std": std,
-                "scores": [float(s) for s in entropy_scores],
-            }
-            print(f"    {mean:.4f} ± {std:.4f}")
-        except Exception as err:  # noqa: BLE001
-            print(f"    ⚠️ Error en complexity: {err}")
-            method_results["complexity"] = None
-
-        # 2) Resto de métricas con Quantus
         for metric_name, metric in metrics.items():
             print(f" -> {metric_name}")
             try:
@@ -302,6 +288,10 @@ def save_results(results: Dict, output_path: str):
         json.dump(results, file, indent=2, ensure_ascii=False)
     print(f"\n✅ Resultados guardados en {output_path}")
 
+
+# ============================================================
+#  main()
+# ============================================================
 
 def main():
     args = parse_args()
