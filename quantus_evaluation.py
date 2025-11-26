@@ -3,11 +3,11 @@ Evaluación cuantitativa de explicabilidad usando Quantus.
 
 Mide 5 dimensiones para Grad-CAM, Grad-CAM++ (opcional),
 Integrated Gradients y Saliency:
-- Fidelidad (Faithfulness Correlation)
-- Robustez (Average Sensitivity)
+- Fidelidad (FaithfulnessCorrelation)
+- Robustez (AvgSensitivity)
 - Complejidad (Entropy)
-- Aleatorización (Model Parameter Randomisation)
-- Localización (Region Perturbation como aproximación de Localization Ratio)
+- Aleatorización (ModelParameterRandomisation)
+- Localización (RegionPerturbation como aproximación de Localization Ratio)
 
 Uso:
     python quantus_evaluation.py --num_samples 30 --methods gradcam integrated_gradients saliency
@@ -114,30 +114,6 @@ def hwc(tensor_batch: torch.Tensor) -> np.ndarray:
     return np_batch
 
 
-def build_predict_fn(model: torch.nn.Module, device: torch.device):
-    """Devuelve función de predicción compatible con Quantus."""
-
-    def predict_fn(x: np.ndarray) -> np.ndarray:
-        model.eval()
-        with torch.no_grad():
-            if isinstance(x, np.ndarray):
-                if x.ndim == 4 and x.shape[-1] in (1, 3):
-                    x_tensor = torch.from_numpy(
-                        np.transpose(x, (0, 3, 1, 2))
-                    ).float()
-                else:
-                    raise ValueError(
-                        "Los datos deben estar en formato (batch, H, W, C)."
-                    )
-            else:
-                x_tensor = x
-            x_tensor = x_tensor.to(device)
-            logits = model(x_tensor)
-            return logits.detach().cpu().numpy()
-
-    return predict_fn
-
-
 # ============================================================
 #  Atribuciones XAI (reutiliza XAIExplainer)
 # ============================================================
@@ -206,9 +182,20 @@ def compute_attributions(
 #  Evaluación con Quantus
 # ============================================================
 
-def evaluate_metric(metric, predict_fn, x_batch_np, y_batch_np, a_batch_np):
+def evaluate_metric(metric, model, x_batch_np, y_batch_np, a_batch_np):
+    """
+    Envuelve la llamada a la métrica de Quantus.
+    En Quantus >=0.3, la firma típica es:
+
+        metric(
+            model=model,         # torch.nn.Module
+            x_batch=x_batch_np,  # np.ndarray
+            y_batch=y_batch_np,  # np.ndarray
+            a_batch=a_batch_np,  # np.ndarray
+        )
+    """
     scores = metric(
-        model=predict_fn,
+        model=model,
         x_batch=x_batch_np,
         y_batch=y_batch_np,
         a_batch=a_batch_np,
@@ -217,10 +204,9 @@ def evaluate_metric(metric, predict_fn, x_batch_np, y_batch_np, a_batch_np):
 
 
 def evaluate_methods(model, explainer, x_batch, y_batch, methods):
-    device = next(model.parameters()).device
-    predict_fn = build_predict_fn(model, device)
     results: Dict[str, Dict[str, Dict[str, float]]] = {}
 
+    # Convertimos a numpy BHWC para Quantus
     x_batch_np = hwc(x_batch)
     y_batch_np = y_batch.detach().cpu().numpy()
 
@@ -228,26 +214,13 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods):
         logits = model(x_batch)
         preds = logits.argmax(dim=1)
 
+    # Definición de métricas Quantus (sin kwargs problemáticos)
     metrics = {
-        "faithfulness": quantus.FaithfulnessCorrelation(
-            nr_samples=10,
-            perturb_baseline="black",
-            similarity_func=quantus.similarity_func.correlation_spearman,
-        ),
-        "robustness": quantus.AvgSensitivity(
-            nr_samples=10,
-            perturb_baseline="black",
-            lower_bound=0.2,
-        ),
+        "faithfulness": quantus.FaithfulnessCorrelation(),
+        "robustness": quantus.AvgSensitivity(),
         "complexity": quantus.Entropy(),
-        "randomization": quantus.ModelParameterRandomisation(
-            layer_order="top_down",
-            similarity_func=quantus.similarity_func.correlation_pearson,
-        ),
-        "localization": quantus.RegionPerturbation(
-            patch_size=7,
-            regions_evaluation=50,
-        ),
+        "randomization": quantus.ModelParameterRandomisation(),
+        "localization": quantus.RegionPerturbation(),
     }
 
     for method in methods:
@@ -265,7 +238,7 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods):
             print(f" -> {metric_name}")
             try:
                 mean, std, scores = evaluate_metric(
-                    metric, predict_fn, x_batch_np, y_batch_np, a_batch_np
+                    metric, model, x_batch_np, y_batch_np, a_batch_np
                 )
                 method_results[metric_name] = {
                     "mean": mean,
