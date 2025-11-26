@@ -204,7 +204,6 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods):
 
     metrics = {
         "faithfulness": quantus.FaithfulnessCorrelation(
-            nr_samples=10,
             perturb_baseline="black",
             similarity_func=quantus.similarity_func.correlation_spearman,
         ),
