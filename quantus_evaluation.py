@@ -5,7 +5,7 @@ Mide 5 dimensiones para Grad-CAM, Grad-CAM++ (opcional),
 Integrated Gradients e Saliency:
 - Fidelidad (Faithfulness Correlation)
 - Robustez (Average Sensitivity)
-- Complejidad (Entropy)
+- Complejidad (Entropy, implementada manualmente)
 - Aleatorización (Randomization Test)
 - Localización (Region Perturbation como aproximación del Localization Ratio)
 
@@ -16,7 +16,7 @@ Uso:
 import argparse
 import json
 import os
-from typing import Dict, List, Optional
+from typing import Dict
 
 import numpy as np
 import torch
@@ -83,7 +83,7 @@ def parse_args():
 
 
 def collect_samples(test_loader, num_samples, device):
-    """Recopila x_batch, y_batch y predicciones del modelo."""
+    """Recopila x_batch, y_batch del conjunto de test."""
     xs, ys = [], []
     with torch.no_grad():
         for idx, (data, target) in enumerate(tqdm(test_loader, desc="Recolectando muestras")):
@@ -99,7 +99,7 @@ def collect_samples(test_loader, num_samples, device):
 
 
 def hwc(tensor_batch: torch.Tensor) -> np.ndarray:
-    """Convierte lote CHW -> HWC para Quantus."""
+    """Convierte lote BCHW -> BHWC para Quantus."""
     np_batch = tensor_batch.detach().cpu().numpy()
     if np_batch.ndim == 4 and np_batch.shape[1] in (1, 3):
         np_batch = np.transpose(np_batch, (0, 2, 3, 1))
@@ -107,7 +107,7 @@ def hwc(tensor_batch: torch.Tensor) -> np.ndarray:
 
 
 def build_predict_fn(model: torch.nn.Module, device: torch.device):
-    """Devuelve función compatible con Quantus."""
+    """Devuelve función de predicción compatible con Quantus."""
 
     def predict_fn(x: np.ndarray) -> np.ndarray:
         model.eval()
@@ -127,9 +127,7 @@ def build_predict_fn(model: torch.nn.Module, device: torch.device):
 
 
 def expand_heatmap_to_channels(heatmap: np.ndarray, channels: int) -> torch.Tensor:
-    """
-    Expande un heatmap HxW a CxHxW repitiendo por canal.
-    """
+    """Expande un heatmap HxW a CxHxW repitiendo por canal."""
     if heatmap.ndim != 2:
         raise ValueError("El heatmap debe ser 2D.")
     tensor = torch.tensor(heatmap, dtype=torch.float32)
@@ -162,12 +160,16 @@ def compute_attributions(
                 _, heatmap = result
                 attr = expand_heatmap_to_channels(heatmap, sample.shape[1])
             elif method == "integrated_gradients":
-                result = explainer.generate_integrated_gradients(sample, target_class, save_path=None)
+                result = explainer.generate_integrated_gradients(
+                    sample, target_class, save_path=None
+                )
                 if result is None:
                     raise RuntimeError("IG retornó None")
                 attr = result[1][0].detach().cpu()
             elif method == "saliency":
-                result = explainer.generate_saliency_map(sample, target_class, save_path=None)
+                result = explainer.generate_saliency_map(
+                    sample, target_class, save_path=None
+                )
                 if result is None:
                     raise RuntimeError("Saliency retornó None")
                 attr = result[1][0].detach().cpu()
@@ -190,6 +192,29 @@ def evaluate_metric(metric, predict_fn, x_batch_np, y_batch_np, a_batch_np):
     return float(np.nanmean(scores)), float(np.nanstd(scores)), scores
 
 
+def compute_entropy_complexity(a_batch_np: np.ndarray) -> np.ndarray:
+    """
+    Complejidad (Entropy) implementada manualmente:
+    - Se toma el valor absoluto de las atribuciones.
+    - Se normaliza para que sumen 1 por muestra.
+    - Se calcula la entropía de Shannon de la distribución.
+    """
+    scores = []
+    for i in range(a_batch_np.shape[0]):
+        attr = a_batch_np[i]
+        abs_attr = np.abs(attr).astype(np.float64)
+        flat = abs_attr.flatten()
+        s = flat.sum()
+        if s <= 0:
+            scores.append(0.0)
+            continue
+        p = flat / s
+        p = p[p > 0]
+        entropy = -np.sum(p * np.log(p + 1e-12))
+        scores.append(float(entropy))
+    return np.array(scores, dtype=float)
+
+
 def evaluate_methods(model, explainer, x_batch, y_batch, methods):
     device = next(model.parameters()).device
     predict_fn = build_predict_fn(model, device)
@@ -202,7 +227,7 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods):
         logits = model(x_batch)
         preds = logits.argmax(dim=1)
 
-    # Definición de métricas Quantus (adaptadas a la versión actual).
+    # Métricas Quantus (sin Entropy, que no está en esta versión).
     metrics = {
         "faithfulness": quantus.FaithfulnessCorrelation(
             perturb_baseline="black",
@@ -212,7 +237,6 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods):
             nr_samples=10,
             lower_bound=0.2,
         ),
-        "complexity": quantus.Entropy(),
         "randomization": quantus.ModelParameterRandomisation(
             layer_order="top_down",
             similarity_func=quantus.similarity_func.correlation_pearson,
@@ -234,6 +258,23 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods):
         a_batch_np = hwc(attr_batch)
         method_results = {}
 
+        # 1) Complejidad (Entropy) calculada a mano
+        print(" -> complexity (entropy)")
+        try:
+            entropy_scores = compute_entropy_complexity(a_batch_np)
+            mean = float(np.nanmean(entropy_scores))
+            std = float(np.nanstd(entropy_scores))
+            method_results["complexity"] = {
+                "mean": mean,
+                "std": std,
+                "scores": [float(s) for s in entropy_scores],
+            }
+            print(f"    {mean:.4f} ± {std:.4f}")
+        except Exception as err:  # noqa: BLE001
+            print(f"    ⚠️ Error en complexity: {err}")
+            method_results["complexity"] = None
+
+        # 2) Resto de métricas con Quantus
         for metric_name, metric in metrics.items():
             print(f" -> {metric_name}")
             try:
