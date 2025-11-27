@@ -286,38 +286,55 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods):
     except AttributeError:
         RandomizationMetric = quantus.ModelParameterRandomisation
     
-    metrics = {
-        "faithfulness": quantus.FaithfulnessCorrelation(
-            nr_samples=10,
-            perturb_baseline="black",
-            similarity_func=quantus.similarity_func.correlation_spearman,
+    # Inicializar métricas con parámetros compatibles
+    # Usamos try/except para manejar diferentes versiones de Quantus
+    metrics = {}
+    
+    # FaithfulnessCorrelation
+    try:
+        metrics["faithfulness"] = quantus.FaithfulnessCorrelation(
             abs=False,
             normalise=False,
-        ),
-        "robustness": quantus.AvgSensitivity(
-            nr_samples=10,
-            perturb_baseline="black",
-            lower_bound=0.2,
+        )
+    except Exception:
+        # Si falla, intentar sin parámetros
+        metrics["faithfulness"] = quantus.FaithfulnessCorrelation()
+    
+    # AvgSensitivity
+    try:
+        metrics["robustness"] = quantus.AvgSensitivity(
             abs=False,
             normalise=False,
-        ),
-        "complexity": quantus.Entropy(
+        )
+    except Exception:
+        metrics["robustness"] = quantus.AvgSensitivity()
+    
+    # Entropy
+    try:
+        metrics["complexity"] = quantus.Entropy(
             abs=False,
             normalise=False,
-        ),
-        "randomization": RandomizationMetric(
-            layer_order="top_down",
-            similarity_func=quantus.similarity_func.correlation_pearson,
+        )
+    except Exception:
+        metrics["complexity"] = quantus.Entropy()
+    
+    # Randomization
+    try:
+        metrics["randomization"] = RandomizationMetric(
             abs=False,
             normalise=False,
-        ),
-        "localization": quantus.RegionPerturbation(
-            patch_size=7,
-            regions_evaluation=50,
+        )
+    except Exception:
+        metrics["randomization"] = RandomizationMetric()
+    
+    # RegionPerturbation
+    try:
+        metrics["localization"] = quantus.RegionPerturbation(
             abs=False,
             normalise=False,
-        ),
-    }
+        )
+    except Exception:
+        metrics["localization"] = quantus.RegionPerturbation()
 
     for method in methods:
         print(f"\n=== Evaluando {method} ===")
@@ -393,3 +410,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
