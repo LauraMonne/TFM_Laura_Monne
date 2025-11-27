@@ -217,9 +217,9 @@ def build_predict_fn(model: torch.nn.Module, device: torch.device):
     return predict
 
 
-def evaluate_metric(metric, model, wrapped_model, predict_fn, x_batch_np, y_batch_np, a_batch_np, device):
+def evaluate_metric(metric, model, wrapped_model, x_batch_np, y_batch_np, a_batch_np, device):
     """Evalúa una métrica de Quantus pasando el modelo directamente."""
-    # Intentar múltiples formas de pasar el modelo
+    # Intentar múltiples formas de pasar el modelo (sin predict_func)
     methods_to_try = [
         # Método 1: Modelo envuelto directamente
         lambda: metric(
@@ -235,15 +235,6 @@ def evaluate_metric(metric, model, wrapped_model, predict_fn, x_batch_np, y_batc
             x_batch=x_batch_np,
             y_batch=y_batch_np,
             a_batch=a_batch_np,
-            device=device,
-        ),
-        # Método 3: Con predict_func como parámetro adicional
-        lambda: metric(
-            model=model,
-            x_batch=x_batch_np,
-            y_batch=y_batch_np,
-            a_batch=a_batch_np,
-            predict_func=predict_fn,
             device=device,
         ),
     ]
@@ -264,7 +255,6 @@ def evaluate_metric(metric, model, wrapped_model, predict_fn, x_batch_np, y_batc
 def evaluate_methods(model, explainer, x_batch, y_batch, methods):
     device = next(model.parameters()).device
     model.eval()  # Asegurar que el modelo está en modo evaluación
-    predict_fn = build_predict_fn(model, device)
     results: Dict[str, Dict[str, Dict[str, float]]] = {}
     
     # Crear un wrapper explícito del modelo para Quantus
@@ -288,12 +278,13 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods):
     
     # Inicializar métricas con parámetros compatibles
     # Usamos try/except para manejar diferentes versiones de Quantus
+    # Nota: abs=True porque el warning indica que se debe aplicar operación absoluta
     metrics = {}
     
     # FaithfulnessCorrelation
     try:
         metrics["faithfulness"] = quantus.FaithfulnessCorrelation(
-            abs=False,
+            abs=True,
             normalise=False,
         )
     except Exception:
@@ -303,7 +294,7 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods):
     # AvgSensitivity
     try:
         metrics["robustness"] = quantus.AvgSensitivity(
-            abs=False,
+            abs=True,
             normalise=False,
         )
     except Exception:
@@ -312,14 +303,14 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods):
     # Complexity (puede llamarse Entropy o Complexity según la versión)
     try:
         metrics["complexity"] = quantus.Complexity(
-            abs=False,
+            abs=True,
             normalise=False,
         )
     except AttributeError:
         try:
             # Intentar con Entropy si Complexity no existe
             metrics["complexity"] = quantus.Entropy(
-                abs=False,
+                abs=True,
                 normalise=False,
             )
         except AttributeError:
@@ -338,7 +329,7 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods):
     # Randomization
     try:
         metrics["randomization"] = RandomizationMetric(
-            abs=False,
+            abs=True,
             normalise=False,
         )
     except Exception:
@@ -347,7 +338,7 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods):
     # RegionPerturbation
     try:
         metrics["localization"] = quantus.RegionPerturbation(
-            abs=False,
+            abs=True,
             normalise=False,
         )
     except Exception:
@@ -368,7 +359,7 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods):
             print(f" -> {metric_name}")
             try:
                 mean, std, scores = evaluate_metric(
-                    metric, model, wrapped_model, predict_fn, x_batch_np, y_batch_np, a_batch_np, device
+                    metric, model, wrapped_model, x_batch_np, y_batch_np, a_batch_np, device
                 )
                 method_results[metric_name] = {
                     "mean": mean,
