@@ -222,19 +222,42 @@ def build_predict_fn(model: torch.nn.Module, device: torch.device):
 
 def evaluate_metric(metric, model, wrapped_model, x_batch_np, y_batch_np, a_batch_np, device):
     """Evalúa una métrica de Quantus pasando el modelo directamente."""
+    # Quantus puede transformar internamente el input cuando se pasa un modelo PyTorch
+    # Necesitamos asegurar que ambos (x_batch y a_batch) estén en el mismo formato
+    # que Quantus espera internamente. Según el error, parece que Quantus espera CHW por muestra.
+    
+    # Convertir ambos a BCHW (batch, channels, height, width) si están en BHWC
+    x_batch_bchw = x_batch_np.copy()
+    a_batch_bchw = a_batch_np.copy()
+    
+    if x_batch_np.ndim == 4 and x_batch_np.shape[-1] in (1, 3):
+        # Está en BHWC, convertir a BCHW
+        x_batch_bchw = np.transpose(x_batch_np, (0, 3, 1, 2))
+    if a_batch_np.ndim == 4 and a_batch_np.shape[-1] in (1, 3):
+        # Está en BHWC, convertir a BCHW
+        a_batch_bchw = np.transpose(a_batch_np, (0, 3, 1, 2))
+    
     # Intentar múltiples formas de pasar el modelo (sin predict_func)
     methods_to_try = [
-        # Método 1: Modelo envuelto directamente
+        # Método 1: Modelo envuelto con formato BCHW
         lambda: metric(
             model=wrapped_model,
-            x_batch=x_batch_np,
+            x_batch=x_batch_bchw,
             y_batch=y_batch_np,
-            a_batch=a_batch_np,
+            a_batch=a_batch_bchw,
             device=device,
         ),
-        # Método 2: Modelo original directamente
+        # Método 2: Modelo original con formato BCHW
         lambda: metric(
             model=model,
+            x_batch=x_batch_bchw,
+            y_batch=y_batch_np,
+            a_batch=a_batch_bchw,
+            device=device,
+        ),
+        # Método 3: Intentar con formato BHWC (por si acaso)
+        lambda: metric(
+            model=wrapped_model,
             x_batch=x_batch_np,
             y_batch=y_batch_np,
             a_batch=a_batch_np,
@@ -265,22 +288,10 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods):
     wrapped_model = ModelWrapper(model).to(device)
     wrapped_model.eval()
 
-    # Convertimos a numpy BHWC para Quantus
-    # Primero verificar el formato original de x_batch
-    x_batch_np = hwc(x_batch)
+    # Convertimos a numpy - mantener en BCHW para Quantus
+    # Quantus con modelos PyTorch espera BCHW internamente
+    x_batch_np = x_batch.detach().cpu().numpy()  # Ya está en BCHW (30, 3, 224, 224)
     y_batch_np = y_batch.detach().cpu().numpy()
-    
-    # Debug temporal: verificar formato
-    print(f"DEBUG: x_batch original shape: {x_batch.shape}")
-    print(f"DEBUG: x_batch_np después de hwc(): {x_batch_np.shape}")
-    
-    # Asegurar que x_batch_np esté en formato BHWC (batch, height, width, channels)
-    # Si está en BCHW (batch, channels, height, width), convertir a BHWC
-    if x_batch_np.ndim == 4:
-        # Si el segundo eje es el canal (1 o 3) y el último no, está en BCHW
-        if x_batch_np.shape[1] in (1, 3) and x_batch_np.shape[-1] not in (1, 3):
-            x_batch_np = np.transpose(x_batch_np, (0, 2, 3, 1))  # BCHW -> BHWC
-            print(f"DEBUG: Convertido x_batch_np de BCHW a BHWC: {x_batch_np.shape}")
 
     with torch.no_grad():
         logits = model(x_batch)
@@ -368,29 +379,13 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods):
             print(f"⚠️ {err}. Saltando método.")
             continue
 
-        a_batch_np = hwc(attr_batch)
+        # Mantener atribuciones en BCHW (mismo formato que x_batch_np)
+        a_batch_np = attr_batch.detach().cpu().numpy()  # Ya está en BCHW (30, 3, 224, 224)
         
-        # Debug: verificar formas antes de evaluar
-        print(f"DEBUG: attr_batch shape: {attr_batch.shape}")
-        print(f"DEBUG: a_batch_np después de hwc(): {a_batch_np.shape}")
-        print(f"DEBUG: x_batch_np shape: {x_batch_np.shape}")
-        
-        # Asegurar que las atribuciones tengan el mismo formato que el input
-        # Ambos deben estar en BHWC (batch, height, width, channels)
-        # Si las formas no coinciden, verificar y corregir
-        if a_batch_np.shape != x_batch_np.shape:
-            # Verificar si las atribuciones están en BCHW en lugar de BHWC
-            if (a_batch_np.ndim == 4 and x_batch_np.ndim == 4 and 
-                a_batch_np.shape[0] == x_batch_np.shape[0] and
-                a_batch_np.shape[1] in (1, 3) and a_batch_np.shape[-1] not in (1, 3)):
-                # Atribuciones están en BCHW, convertir a BHWC
-                a_batch_np = np.transpose(a_batch_np, (0, 2, 3, 1))
-                print(f"DEBUG: Convertido a_batch_np de BCHW a BHWC: {a_batch_np.shape}")
-        
-        # Verificar que las formas coincidan después de la corrección
+        # Verificar que las formas coincidan
         if a_batch_np.shape != x_batch_np.shape:
             print(f"⚠️ ERROR: Formas no coinciden - x_batch: {x_batch_np.shape}, a_batch: {a_batch_np.shape}")
-            print(f"   Por muestra - x: {x_batch_np.shape[1:]}, a: {a_batch_np.shape[1:]}")
+            continue
         
         method_results = {}
 
