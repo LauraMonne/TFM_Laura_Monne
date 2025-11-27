@@ -220,55 +220,61 @@ def build_predict_fn(model: torch.nn.Module, device: torch.device):
     return predict
 
 
-def evaluate_metric(metric, model, wrapped_model, x_batch_np, y_batch_np, a_batch_np, device):
+def evaluate_metric(metric, model, wrapped_model, x_batch_np, y_batch_np, a_batch_np, device, explain_func=None):
     """Evalúa una métrica de Quantus pasando el modelo directamente."""
-    # Quantus puede transformar internamente el input cuando se pasa un modelo PyTorch
-    # Necesitamos asegurar que ambos (x_batch y a_batch) estén en el mismo formato
-    # que Quantus espera internamente. Según el error, parece que Quantus espera CHW por muestra.
+    # Intentar múltiples formas de pasar el modelo
+    methods_to_try = []
     
-    # Convertir ambos a BCHW (batch, channels, height, width) si están en BHWC
-    x_batch_bchw = x_batch_np.copy()
-    a_batch_bchw = a_batch_np.copy()
+    # Método 1: Con explain_func si está disponible (para robustness, randomization)
+    if explain_func is not None:
+        methods_to_try.append(
+            lambda: metric(
+                model=wrapped_model,
+                x_batch=x_batch_np,
+                y_batch=y_batch_np,
+                a_batch=a_batch_np,
+                explain_func=explain_func,
+                device=device,
+            )
+        )
+        methods_to_try.append(
+            lambda: metric(
+                model=model,
+                x_batch=x_batch_np,
+                y_batch=y_batch_np,
+                a_batch=a_batch_np,
+                explain_func=explain_func,
+                device=device,
+            )
+        )
     
-    if x_batch_np.ndim == 4 and x_batch_np.shape[-1] in (1, 3):
-        # Está en BHWC, convertir a BCHW
-        x_batch_bchw = np.transpose(x_batch_np, (0, 3, 1, 2))
-    if a_batch_np.ndim == 4 and a_batch_np.shape[-1] in (1, 3):
-        # Está en BHWC, convertir a BCHW
-        a_batch_bchw = np.transpose(a_batch_np, (0, 3, 1, 2))
-    
-    # Intentar múltiples formas de pasar el modelo (sin predict_func)
-    methods_to_try = [
-        # Método 1: Modelo envuelto con formato BCHW
-        lambda: metric(
-            model=wrapped_model,
-            x_batch=x_batch_bchw,
-            y_batch=y_batch_np,
-            a_batch=a_batch_bchw,
-            device=device,
-        ),
-        # Método 2: Modelo original con formato BCHW
-        lambda: metric(
-            model=model,
-            x_batch=x_batch_bchw,
-            y_batch=y_batch_np,
-            a_batch=a_batch_bchw,
-            device=device,
-        ),
-        # Método 3: Intentar con formato BHWC (por si acaso)
+    # Método 2: Sin explain_func (para faithfulness, complexity, localization)
+    methods_to_try.append(
         lambda: metric(
             model=wrapped_model,
             x_batch=x_batch_np,
             y_batch=y_batch_np,
             a_batch=a_batch_np,
             device=device,
-        ),
-    ]
+        )
+    )
+    methods_to_try.append(
+        lambda: metric(
+            model=model,
+            x_batch=x_batch_np,
+            y_batch=y_batch_np,
+            a_batch=a_batch_np,
+            device=device,
+        )
+    )
     
     last_error = None
     for method in methods_to_try:
         try:
             scores = method()
+            # Aplanar scores si es necesario (para localization que puede devolver arrays anidados)
+            if isinstance(scores, np.ndarray) and scores.ndim > 1:
+                scores = scores.flatten()
             return float(np.nanmean(scores)), float(np.nanstd(scores)), scores
         except Exception as e:
             last_error = e
@@ -276,6 +282,71 @@ def evaluate_metric(metric, model, wrapped_model, x_batch_np, y_batch_np, a_batc
     
     # Si todos fallan, lanzar el último error
     raise last_error
+
+
+def build_explain_func(explainer: XAIExplainer, method: str, device: torch.device):
+    """Construye una función explain_func compatible con Quantus."""
+    def explain_func(model, inputs, targets, **kwargs):
+        """
+        Función de explicación para Quantus.
+        inputs: np.ndarray en formato BHWC o BCHW
+        targets: np.ndarray con las clases objetivo
+        """
+        # Convertir inputs a tensor si es necesario
+        if isinstance(inputs, np.ndarray):
+            if inputs.ndim == 4 and inputs.shape[-1] in (1, 3):
+                # Está en BHWC, convertir a BCHW
+                inputs = np.transpose(inputs, (0, 3, 1, 2))
+            inputs_tensor = torch.tensor(inputs, dtype=torch.float32).to(device)
+        else:
+            inputs_tensor = inputs.to(device)
+        
+        # Convertir targets a tensor si es necesario
+        if isinstance(targets, np.ndarray):
+            targets_tensor = torch.tensor(targets, dtype=torch.long).to(device)
+        else:
+            targets_tensor = targets.to(device)
+        
+        # Generar atribuciones para el batch
+        attributions = []
+        for idx in range(len(inputs_tensor)):
+            sample = inputs_tensor[idx:idx+1]
+            target_class = int(targets_tensor[idx].item())
+            try:
+                if method == "gradcam":
+                    result = explainer.generate_gradcam(sample, target_class, save_path=None)
+                    if result is None:
+                        raise RuntimeError("Grad-CAM retornó None")
+                    _, heatmap = result
+                    attr = expand_heatmap_to_channels(heatmap, sample.shape[1])
+                elif method == "gradcampp":
+                    result = explainer.generate_gradcampp(sample, target_class, save_path=None)
+                    if result is None:
+                        raise RuntimeError("Grad-CAM++ retornó None")
+                    _, heatmap = result
+                    attr = expand_heatmap_to_channels(heatmap, sample.shape[1])
+                elif method == "integrated_gradients":
+                    result = explainer.generate_integrated_gradients(sample, target_class, save_path=None)
+                    if result is None:
+                        raise RuntimeError("IG retornó None")
+                    attr = result[1][0].detach().cpu()
+                elif method == "saliency":
+                    result = explainer.generate_saliency_map(sample, target_class, save_path=None)
+                    if result is None:
+                        raise RuntimeError("Saliency retornó None")
+                    attr = result[1][0].detach().cpu()
+                else:
+                    raise ValueError(f"Método desconocido: {method}")
+            except Exception:
+                # Si falla, usar ceros
+                attr = torch.zeros_like(sample[0].cpu())
+            attributions.append(attr)
+        
+        attr_batch = torch.stack(attributions, dim=0)
+        # Convertir a numpy en formato BCHW
+        return attr_batch.detach().cpu().numpy()
+    
+    return explain_func
 
 
 def evaluate_methods(model, explainer, x_batch, y_batch, methods):
@@ -387,18 +458,46 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods):
             print(f"⚠️ ERROR: Formas no coinciden - x_batch: {x_batch_np.shape}, a_batch: {a_batch_np.shape}")
             continue
         
+        # Crear explain_func para métricas que la requieren
+        explain_fn = build_explain_func(explainer, method, device)
+        
         method_results = {}
 
         for metric_name, metric in metrics.items():
             print(f" -> {metric_name}")
             try:
-                mean, std, scores = evaluate_metric(
-                    metric, model, wrapped_model, x_batch_np, y_batch_np, a_batch_np, device
-                )
+                # Algunas métricas requieren explain_func
+                if metric_name in ["robustness", "randomization"]:
+                    mean, std, scores = evaluate_metric(
+                        metric, model, wrapped_model, x_batch_np, y_batch_np, a_batch_np, device, explain_func=explain_fn
+                    )
+                else:
+                    mean, std, scores = evaluate_metric(
+                        metric, model, wrapped_model, x_batch_np, y_batch_np, a_batch_np, device
+                    )
+                
+                # Convertir scores a lista de floats de forma segura
+                # Aplanar scores primero si es necesario
+                if isinstance(scores, np.ndarray):
+                    scores_flat = scores.flatten()
+                else:
+                    scores_flat = scores
+                
+                scores_list = []
+                for s in scores_flat:
+                    if isinstance(s, (np.ndarray, np.generic)):
+                        if s.size == 1:
+                            scores_list.append(float(s))
+                        else:
+                            # Si es un array, tomar el primer elemento o la media
+                            scores_list.append(float(np.mean(s)))
+                    else:
+                        scores_list.append(float(s))
+                
                 method_results[metric_name] = {
                     "mean": mean,
                     "std": std,
-                    "scores": [float(s) for s in scores],
+                    "scores": scores_list,
                 }
                 print(f"    {mean:.4f} ± {std:.4f}")
             except Exception as err:  # noqa: BLE001
