@@ -5,8 +5,8 @@ Mide 5 dimensiones para Grad-CAM, Grad-CAM++ (opcional),
 Integrated Gradients y Saliency:
 - Fidelidad (FaithfulnessCorrelation)
 - Robustez (AvgSensitivity)
-- Complejidad (Entropy)
-- Aleatorización (ModelParameterRandomisation)
+- Complejidad (Complexity/Entropy)
+- Aleatorización (ModelParameterRandomisation/MPRT)
 - Localización (RegionPerturbation como aproximación de Localization Ratio)
 
 Uso:
@@ -309,14 +309,31 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods):
     except Exception:
         metrics["robustness"] = quantus.AvgSensitivity()
     
-    # Entropy
+    # Complexity (puede llamarse Entropy o Complexity según la versión)
     try:
-        metrics["complexity"] = quantus.Entropy(
+        metrics["complexity"] = quantus.Complexity(
             abs=False,
             normalise=False,
         )
+    except AttributeError:
+        try:
+            # Intentar con Entropy si Complexity no existe
+            metrics["complexity"] = quantus.Entropy(
+                abs=False,
+                normalise=False,
+            )
+        except AttributeError:
+            # Si tampoco existe Entropy, intentar sin parámetros
+            try:
+                metrics["complexity"] = quantus.Complexity()
+            except AttributeError:
+                metrics["complexity"] = quantus.Entropy()
     except Exception:
-        metrics["complexity"] = quantus.Entropy()
+        # Si falla por otros motivos, intentar sin parámetros
+        try:
+            metrics["complexity"] = quantus.Complexity()
+        except AttributeError:
+            metrics["complexity"] = quantus.Entropy()
     
     # Randomization
     try:
