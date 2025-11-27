@@ -76,8 +76,8 @@ def parse_args():
     parser.add_argument(
         "--methods",
         nargs="+",
-        default=["gradcam", "integrated_gradients", "saliency"],
-        help="Métodos XAI a evaluar.",
+        default=["gradcam", "gradcampp", "integrated_gradients", "saliency"],
+        help="Métodos XAI a evaluar (gradcam, gradcampp, integrated_gradients, saliency).",
     )
     parser.add_argument(
         "--skip_slow_metrics",
@@ -485,6 +485,12 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods, args):
                 # Randomization necesita explain_func en la inicialización
                 if metric_name == "randomization":
                     print(" (puede tardar varios minutos...)")
+                    # Verificar que explain_fn sea callable
+                    if not callable(explain_fn):
+                        print(f"    ⚠️ explain_func no es callable. Saltando randomization.")
+                        method_results[metric_name] = None
+                        continue
+                    
                     # Inicializar la métrica con explain_func
                     try:
                         randomization_metric = RandomizationMetric(
@@ -492,14 +498,27 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods, args):
                             normalise=False,
                             explain_func=explain_fn,
                         )
-                    except Exception:
+                    except Exception as e1:
                         try:
                             randomization_metric = RandomizationMetric(
                                 explain_func=explain_fn,
                             )
-                        except Exception:
+                        except Exception as e2:
                             # Si falla, intentar sin explain_func (puede que no lo necesite)
-                            randomization_metric = RandomizationMetric()
+                            print(f"    ⚠️ No se pudo inicializar con explain_func: {e2}")
+                            try:
+                                randomization_metric = RandomizationMetric()
+                            except Exception as e3:
+                                print(f"    ⚠️ Error inicializando RandomizationMetric: {e3}")
+                                method_results[metric_name] = None
+                                continue
+                    
+                    # Verificar que la métrica tenga explain_func configurado
+                    if not hasattr(randomization_metric, 'explain_func') or not callable(randomization_metric.explain_func):
+                        print(f"    ⚠️ La métrica no tiene explain_func válido. Saltando.")
+                        method_results[metric_name] = None
+                        continue
+                    
                     mean, std, scores = evaluate_metric(
                         randomization_metric, model, wrapped_model, x_batch_np, y_batch_np, a_batch_np, device
                     )
