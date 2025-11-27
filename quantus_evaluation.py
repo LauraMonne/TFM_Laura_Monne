@@ -266,14 +266,21 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods):
     wrapped_model.eval()
 
     # Convertimos a numpy BHWC para Quantus
+    # Primero verificar el formato original de x_batch
     x_batch_np = hwc(x_batch)
     y_batch_np = y_batch.detach().cpu().numpy()
     
-    # Asegurar que x_batch_np esté en formato BHWC
-    # Si está en BCHW, convertir a BHWC
+    # Debug temporal: verificar formato
+    print(f"DEBUG: x_batch original shape: {x_batch.shape}")
+    print(f"DEBUG: x_batch_np después de hwc(): {x_batch_np.shape}")
+    
+    # Asegurar que x_batch_np esté en formato BHWC (batch, height, width, channels)
+    # Si está en BCHW (batch, channels, height, width), convertir a BHWC
     if x_batch_np.ndim == 4:
+        # Si el segundo eje es el canal (1 o 3) y el último no, está en BCHW
         if x_batch_np.shape[1] in (1, 3) and x_batch_np.shape[-1] not in (1, 3):
-            x_batch_np = np.transpose(x_batch_np, (0, 2, 3, 1))
+            x_batch_np = np.transpose(x_batch_np, (0, 2, 3, 1))  # BCHW -> BHWC
+            print(f"DEBUG: Convertido x_batch_np de BCHW a BHWC: {x_batch_np.shape}")
 
     with torch.no_grad():
         logits = model(x_batch)
@@ -364,7 +371,9 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods):
         a_batch_np = hwc(attr_batch)
         
         # Debug: verificar formas antes de evaluar
-        # print(f"DEBUG: x_batch_np shape: {x_batch_np.shape}, a_batch_np shape: {a_batch_np.shape}")
+        print(f"DEBUG: attr_batch shape: {attr_batch.shape}")
+        print(f"DEBUG: a_batch_np después de hwc(): {a_batch_np.shape}")
+        print(f"DEBUG: x_batch_np shape: {x_batch_np.shape}")
         
         # Asegurar que las atribuciones tengan el mismo formato que el input
         # Ambos deben estar en BHWC (batch, height, width, channels)
@@ -376,10 +385,12 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods):
                 a_batch_np.shape[1] in (1, 3) and a_batch_np.shape[-1] not in (1, 3)):
                 # Atribuciones están en BCHW, convertir a BHWC
                 a_batch_np = np.transpose(a_batch_np, (0, 2, 3, 1))
+                print(f"DEBUG: Convertido a_batch_np de BCHW a BHWC: {a_batch_np.shape}")
         
         # Verificar que las formas coincidan después de la corrección
         if a_batch_np.shape != x_batch_np.shape:
-            print(f"⚠️ Advertencia: Formas no coinciden - x_batch: {x_batch_np.shape}, a_batch: {a_batch_np.shape}")
+            print(f"⚠️ ERROR: Formas no coinciden - x_batch: {x_batch_np.shape}, a_batch: {a_batch_np.shape}")
+            print(f"   Por muestra - x: {x_batch_np.shape[1:]}, a: {a_batch_np.shape[1:]}")
         
         method_results = {}
 
