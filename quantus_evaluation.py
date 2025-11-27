@@ -80,6 +80,11 @@ def parse_args():
         help="Métodos XAI a evaluar.",
     )
     parser.add_argument(
+        "--skip_slow_metrics",
+        action="store_true",
+        help="Saltar métricas lentas (robustness, randomization).",
+    )
+    parser.add_argument(
         "--output",
         default="outputs/quantus_metrics.json",
         help="Ruta de guardado para los resultados.",
@@ -286,12 +291,20 @@ def evaluate_metric(metric, model, wrapped_model, x_batch_np, y_batch_np, a_batc
 
 def build_explain_func(explainer: XAIExplainer, method: str, device: torch.device):
     """Construye una función explain_func compatible con Quantus."""
+    # Cache para evitar regenerar atribuciones si se llama con los mismos inputs
+    _cache = {}
+    
     def explain_func(model, inputs, targets, **kwargs):
         """
         Función de explicación para Quantus.
         inputs: np.ndarray en formato BHWC o BCHW
         targets: np.ndarray con las clases objetivo
         """
+        # Crear una clave de cache basada en los inputs
+        cache_key = (id(inputs), id(targets))
+        if cache_key in _cache:
+            return _cache[cache_key]
+        
         # Convertir inputs a tensor si es necesario
         if isinstance(inputs, np.ndarray):
             if inputs.ndim == 4 and inputs.shape[-1] in (1, 3):
@@ -344,12 +357,14 @@ def build_explain_func(explainer: XAIExplainer, method: str, device: torch.devic
         
         attr_batch = torch.stack(attributions, dim=0)
         # Convertir a numpy en formato BCHW
-        return attr_batch.detach().cpu().numpy()
+        result_np = attr_batch.detach().cpu().numpy()
+        _cache[cache_key] = result_np
+        return result_np
     
     return explain_func
 
 
-def evaluate_methods(model, explainer, x_batch, y_batch, methods):
+def evaluate_methods(model, explainer, x_batch, y_batch, methods, args):
     device = next(model.parameters()).device
     model.eval()  # Asegurar que el modelo está en modo evaluación
     results: Dict[str, Dict[str, Dict[str, float]]] = {}
@@ -424,14 +439,9 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods):
         except AttributeError:
             metrics["complexity"] = quantus.Entropy()
     
-    # Randomization
-    try:
-        metrics["randomization"] = RandomizationMetric(
-            abs=True,
-            normalise=False,
-        )
-    except Exception:
-        metrics["randomization"] = RandomizationMetric()
+    # Randomization - se inicializará más tarde con explain_func
+    # No lo inicializamos aquí porque necesita explain_func
+    metrics["randomization"] = None  # Se inicializará dinámicamente
     
     # RegionPerturbation
     try:
@@ -464,10 +474,38 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods):
         method_results = {}
 
         for metric_name, metric in metrics.items():
-            print(f" -> {metric_name}")
+            # Saltar métricas lentas si se solicita
+            if hasattr(args, 'skip_slow_metrics') and args.skip_slow_metrics and metric_name in ["robustness", "randomization"]:
+                print(f" -> {metric_name} (saltada - usar sin --skip_slow_metrics para incluirla)")
+                method_results[metric_name] = None
+                continue
+            
+            print(f" -> {metric_name}", end="", flush=True)
             try:
-                # Algunas métricas requieren explain_func
-                if metric_name in ["robustness", "randomization"]:
+                # Randomization necesita explain_func en la inicialización
+                if metric_name == "randomization":
+                    print(" (puede tardar varios minutos...)")
+                    # Inicializar la métrica con explain_func
+                    try:
+                        randomization_metric = RandomizationMetric(
+                            abs=True,
+                            normalise=False,
+                            explain_func=explain_fn,
+                        )
+                    except Exception:
+                        try:
+                            randomization_metric = RandomizationMetric(
+                                explain_func=explain_fn,
+                            )
+                        except Exception:
+                            # Si falla, intentar sin explain_func (puede que no lo necesite)
+                            randomization_metric = RandomizationMetric()
+                    mean, std, scores = evaluate_metric(
+                        randomization_metric, model, wrapped_model, x_batch_np, y_batch_np, a_batch_np, device
+                    )
+                # Robustness puede usar explain_func como parámetro
+                elif metric_name == "robustness":
+                    print(" (puede tardar varios minutos...)")
                     mean, std, scores = evaluate_metric(
                         metric, model, wrapped_model, x_batch_np, y_batch_np, a_batch_np, device, explain_func=explain_fn
                     )
@@ -545,7 +583,7 @@ def main():
     explainer = XAIExplainer(model, device, num_classes=15)
     x_batch, y_batch = collect_samples(test_loader, args.num_samples, device)
 
-    results = evaluate_methods(model, explainer, x_batch, y_batch, args.methods)
+    results = evaluate_methods(model, explainer, x_batch, y_batch, args.methods, args)
     save_results(results, args.output)
 
 
