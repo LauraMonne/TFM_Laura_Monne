@@ -110,8 +110,11 @@ def collect_samples(test_loader, num_samples, device):
 def hwc(tensor_batch: torch.Tensor) -> np.ndarray:
     """Convierte lote BCHW -> BHWC para Quantus."""
     np_batch = tensor_batch.detach().cpu().numpy()
-    if np_batch.ndim == 4 and np_batch.shape[1] in (1, 3):
-        np_batch = np.transpose(np_batch, (0, 2, 3, 1))
+    if np_batch.ndim == 4:
+        # Si está en formato BCHW (batch, channels, height, width)
+        if np_batch.shape[1] in (1, 3) and np_batch.shape[-1] not in (1, 3):
+            np_batch = np.transpose(np_batch, (0, 2, 3, 1))  # BCHW -> BHWC
+        # Si ya está en BHWC, no hacer nada
     return np_batch
 
 
@@ -124,7 +127,7 @@ def expand_heatmap_to_channels(heatmap: np.ndarray, channels: int) -> torch.Tens
     if heatmap.ndim != 2:
         raise ValueError("El heatmap debe ser 2D.")
     tensor = torch.tensor(heatmap, dtype=torch.float32)
-    tensor = tensor.unsqueeze(0).repeat(channels, 1, 1)
+    tensor = tensor.unsqueeze(0).repeat(channels, 1, 1)  # Resultado: (C, H, W)
     return tensor
 
 
@@ -265,6 +268,12 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods):
     # Convertimos a numpy BHWC para Quantus
     x_batch_np = hwc(x_batch)
     y_batch_np = y_batch.detach().cpu().numpy()
+    
+    # Asegurar que x_batch_np esté en formato BHWC
+    # Si está en BCHW, convertir a BHWC
+    if x_batch_np.ndim == 4:
+        if x_batch_np.shape[1] in (1, 3) and x_batch_np.shape[-1] not in (1, 3):
+            x_batch_np = np.transpose(x_batch_np, (0, 2, 3, 1))
 
     with torch.no_grad():
         logits = model(x_batch)
@@ -353,6 +362,25 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods):
             continue
 
         a_batch_np = hwc(attr_batch)
+        
+        # Debug: verificar formas antes de evaluar
+        # print(f"DEBUG: x_batch_np shape: {x_batch_np.shape}, a_batch_np shape: {a_batch_np.shape}")
+        
+        # Asegurar que las atribuciones tengan el mismo formato que el input
+        # Ambos deben estar en BHWC (batch, height, width, channels)
+        # Si las formas no coinciden, verificar y corregir
+        if a_batch_np.shape != x_batch_np.shape:
+            # Verificar si las atribuciones están en BCHW en lugar de BHWC
+            if (a_batch_np.ndim == 4 and x_batch_np.ndim == 4 and 
+                a_batch_np.shape[0] == x_batch_np.shape[0] and
+                a_batch_np.shape[1] in (1, 3) and a_batch_np.shape[-1] not in (1, 3)):
+                # Atribuciones están en BCHW, convertir a BHWC
+                a_batch_np = np.transpose(a_batch_np, (0, 2, 3, 1))
+        
+        # Verificar que las formas coincidan después de la corrección
+        if a_batch_np.shape != x_batch_np.shape:
+            print(f"⚠️ Advertencia: Formas no coinciden - x_batch: {x_batch_np.shape}, a_batch: {a_batch_np.shape}")
+        
         method_results = {}
 
         for metric_name, metric in metrics.items():
