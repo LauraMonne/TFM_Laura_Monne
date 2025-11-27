@@ -16,6 +16,7 @@ Uso:
 import argparse
 import json
 import os
+import traceback
 from typing import Dict
 
 import numpy as np
@@ -182,29 +183,94 @@ def compute_attributions(
 #  Evaluación con Quantus
 # ============================================================
 
-def evaluate_metric(metric, model, x_batch_np, y_batch_np, a_batch_np):
-    """
-    Envuelve la llamada a la métrica de Quantus.
-    En Quantus >=0.3, la firma típica es:
+class ModelWrapper(torch.nn.Module):
+    """Wrapper explícito para asegurar compatibilidad con Quantus."""
 
-        metric(
-            model=model,         # torch.nn.Module
-            x_batch=x_batch_np,  # np.ndarray
-            y_batch=y_batch_np,  # np.ndarray
-            a_batch=a_batch_np,  # np.ndarray
-        )
-    """
-    scores = metric(
-        model=model,
-        x_batch=x_batch_np,
-        y_batch=y_batch_np,
-        a_batch=a_batch_np,
-    )
-    return float(np.nanmean(scores)), float(np.nanstd(scores)), scores
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, x):
+        return self.model(x)
+
+    def __getattr__(self, name):
+        # Delegar atributos al modelo subyacente
+        return getattr(self.model, name)
+
+
+def build_predict_fn(model: torch.nn.Module, device: torch.device):
+    """Devuelve una función predict_func compatible con Quantus."""
+
+    def predict(x_np: np.ndarray):
+        model.eval()
+        with torch.no_grad():
+            if not isinstance(x_np, np.ndarray):
+                raise TypeError("predict_func espera un np.ndarray")
+            tensor = torch.tensor(x_np, dtype=torch.float32)
+            if tensor.ndim == 4 and tensor.shape[-1] in (1, 3):
+                tensor = tensor.permute(0, 3, 1, 2)
+            tensor = tensor.to(device)
+            logits = model(tensor)
+            probs = torch.softmax(logits, dim=1)
+            return probs.detach().cpu().numpy()
+
+    return predict
+
+
+def evaluate_metric(metric, model, wrapped_model, predict_fn, x_batch_np, y_batch_np, a_batch_np, device):
+    """Evalúa una métrica de Quantus pasando el modelo directamente."""
+    # Intentar múltiples formas de pasar el modelo
+    methods_to_try = [
+        # Método 1: Modelo envuelto directamente
+        lambda: metric(
+            model=wrapped_model,
+            x_batch=x_batch_np,
+            y_batch=y_batch_np,
+            a_batch=a_batch_np,
+            device=device,
+        ),
+        # Método 2: Modelo original directamente
+        lambda: metric(
+            model=model,
+            x_batch=x_batch_np,
+            y_batch=y_batch_np,
+            a_batch=a_batch_np,
+            device=device,
+        ),
+        # Método 3: Con predict_func como parámetro adicional
+        lambda: metric(
+            model=model,
+            x_batch=x_batch_np,
+            y_batch=y_batch_np,
+            a_batch=a_batch_np,
+            predict_func=predict_fn,
+            device=device,
+        ),
+    ]
+    
+    last_error = None
+    for method in methods_to_try:
+        try:
+            scores = method()
+            return float(np.nanmean(scores)), float(np.nanstd(scores)), scores
+        except Exception as e:
+            last_error = e
+            continue
+    
+    # Si todos fallan, lanzar el último error
+    raise last_error
 
 
 def evaluate_methods(model, explainer, x_batch, y_batch, methods):
+    device = next(model.parameters()).device
+    model.eval()  # Asegurar que el modelo está en modo evaluación
+    predict_fn = build_predict_fn(model, device)
     results: Dict[str, Dict[str, Dict[str, float]]] = {}
+    
+    # Crear un wrapper explícito del modelo para Quantus
+    # Esto asegura que Quantus reconozca correctamente el tipo
+    wrapped_model = ModelWrapper(model).to(device)
+    wrapped_model.eval()
 
     # Convertimos a numpy BHWC para Quantus
     x_batch_np = hwc(x_batch)
@@ -214,13 +280,43 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods):
         logits = model(x_batch)
         preds = logits.argmax(dim=1)
 
-    # Definición de métricas Quantus (sin kwargs problemáticos)
+    # Usar MPRT en lugar de ModelParameterRandomisation (deprecated)
+    try:
+        RandomizationMetric = quantus.MPRT
+    except AttributeError:
+        RandomizationMetric = quantus.ModelParameterRandomisation
+    
     metrics = {
-        "faithfulness": quantus.FaithfulnessCorrelation(),
-        "robustness": quantus.AvgSensitivity(),
-        "complexity": quantus.Entropy(),
-        "randomization": quantus.ModelParameterRandomisation(),
-        "localization": quantus.RegionPerturbation(),
+        "faithfulness": quantus.FaithfulnessCorrelation(
+            nr_samples=10,
+            perturb_baseline="black",
+            similarity_func=quantus.similarity_func.correlation_spearman,
+            abs=False,
+            normalise=False,
+        ),
+        "robustness": quantus.AvgSensitivity(
+            nr_samples=10,
+            perturb_baseline="black",
+            lower_bound=0.2,
+            abs=False,
+            normalise=False,
+        ),
+        "complexity": quantus.Entropy(
+            abs=False,
+            normalise=False,
+        ),
+        "randomization": RandomizationMetric(
+            layer_order="top_down",
+            similarity_func=quantus.similarity_func.correlation_pearson,
+            abs=False,
+            normalise=False,
+        ),
+        "localization": quantus.RegionPerturbation(
+            patch_size=7,
+            regions_evaluation=50,
+            abs=False,
+            normalise=False,
+        ),
     }
 
     for method in methods:
@@ -238,7 +334,7 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods):
             print(f" -> {metric_name}")
             try:
                 mean, std, scores = evaluate_metric(
-                    metric, model, x_batch_np, y_batch_np, a_batch_np
+                    metric, model, wrapped_model, predict_fn, x_batch_np, y_batch_np, a_batch_np, device
                 )
                 method_results[metric_name] = {
                     "mean": mean,
@@ -248,6 +344,7 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods):
                 print(f"    {mean:.4f} ± {std:.4f}")
             except Exception as err:  # noqa: BLE001
                 print(f"    ⚠️ Error en {metric_name}: {err}")
+                traceback.print_exc()
                 method_results[metric_name] = None
 
         results[method] = method_results
