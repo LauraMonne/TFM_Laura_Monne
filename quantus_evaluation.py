@@ -482,7 +482,8 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods, args):
             
             print(f" -> {metric_name}", end="", flush=True)
             try:
-                # Randomization necesita explain_func en la inicialización
+                # Randomization - esta versión de Quantus no soporta explain_func en inicialización
+                # Intentar pasarlo como parámetro en la llamada
                 if metric_name == "randomization":
                     print(" (puede tardar varios minutos...)")
                     # Verificar que explain_fn sea callable
@@ -491,37 +492,32 @@ def evaluate_methods(model, explainer, x_batch, y_batch, methods, args):
                         method_results[metric_name] = None
                         continue
                     
-                    # Inicializar la métrica con explain_func
+                    # Inicializar la métrica sin explain_func (esta versión no lo acepta)
                     try:
                         randomization_metric = RandomizationMetric(
                             abs=True,
                             normalise=False,
-                            explain_func=explain_fn,
                         )
-                    except Exception as e1:
+                    except Exception:
+                        randomization_metric = RandomizationMetric()
+                    
+                    # Intentar pasar explain_func como parámetro en la llamada
+                    try:
+                        mean, std, scores = evaluate_metric(
+                            randomization_metric, model, wrapped_model, x_batch_np, y_batch_np, a_batch_np, device, explain_func=explain_fn
+                        )
+                    except Exception as e:
+                        # Si falla, intentar sin explain_func
+                        print(f"    ⚠️ Error con explain_func: {e}")
+                        print(f"    ⚠️ Intentando sin explain_func...")
                         try:
-                            randomization_metric = RandomizationMetric(
-                                explain_func=explain_fn,
+                            mean, std, scores = evaluate_metric(
+                                randomization_metric, model, wrapped_model, x_batch_np, y_batch_np, a_batch_np, device
                             )
                         except Exception as e2:
-                            # Si falla, intentar sin explain_func (puede que no lo necesite)
-                            print(f"    ⚠️ No se pudo inicializar con explain_func: {e2}")
-                            try:
-                                randomization_metric = RandomizationMetric()
-                            except Exception as e3:
-                                print(f"    ⚠️ Error inicializando RandomizationMetric: {e3}")
-                                method_results[metric_name] = None
-                                continue
-                    
-                    # Verificar que la métrica tenga explain_func configurado
-                    if not hasattr(randomization_metric, 'explain_func') or not callable(randomization_metric.explain_func):
-                        print(f"    ⚠️ La métrica no tiene explain_func válido. Saltando.")
-                        method_results[metric_name] = None
-                        continue
-                    
-                    mean, std, scores = evaluate_metric(
-                        randomization_metric, model, wrapped_model, x_batch_np, y_batch_np, a_batch_np, device
-                    )
+                            print(f"    ⚠️ Randomization no compatible con esta versión de Quantus: {e2}")
+                            method_results[metric_name] = None
+                            continue
                 # Robustness puede usar explain_func como parámetro
                 elif metric_name == "robustness":
                     print(" (puede tardar varios minutos...)")
