@@ -33,6 +33,8 @@ from resnet18 import create_model, set_seed
 from torch.cuda.amp import autocast, GradScaler
 
 # ----------------------------- Utilidades -----------------------------
+# Calcula pesos de clase inversos a la frecuencia sobre un dataset con etiquetas [0..num_classes-1].
+# Devuelve un tensor con los pesos de clase y los conteos de cada clase.
 def compute_class_weights(dataset, num_classes: int):
     """
     Calcula pesos de clase inversos a la frecuencia sobre un dataset con etiquetas [0..num_classes-1].
@@ -50,6 +52,8 @@ def compute_class_weights(dataset, num_classes: int):
     inv = inv * (num_classes / inv.sum())  # normalizar
     return inv.astype(np.float32), counts
 
+# Early stopping para detener el entrenamiento si la pérdida de validación no mejora después de un número de épocas.
+# Restaura el mejor modelo si se activa.
 class EarlyStopping:
     def __init__(self, patience=7, min_delta=1e-4, restore_best_weights=True):
         self.patience = patience
@@ -58,7 +62,9 @@ class EarlyStopping:
         self.best_loss = None
         self.counter = 0
         self.best_state = None
-
+# Early stopping.
+# Si la pérdida de validación no mejora después de un número de épocas, se detiene el entrenamiento.
+# Restaura el mejor modelo si se activa.
     def __call__(self, val_loss, model):
         if self.best_loss is None:
             self.best_loss = val_loss
@@ -79,6 +85,8 @@ class EarlyStopping:
         return False
 
 # ----------------------------- Trainer -----------------------------
+# Entrenador que maneja el entrenamiento, validación y evaluación.
+# Inicializa el entrenador con el modelo, DataLoaders, dispositivo, configuración y pesos de clase (opcional).
 class Trainer:
     def __init__(self, model, train_loader, val_loader, test_loader, device, config, class_weights=None):
         self.model = model.to(device)
@@ -111,6 +119,11 @@ class Trainer:
         self.best_val_loss = float('inf')
         self.best_val_acc = 0.0
 
+    # Entrena una época.
+    # Imprime el progreso de entrenamiento.
+    # Devuelve la pérdida y la precisión de entrenamiento.
+    # Usa tqdm para mostrar el progreso de entrenamiento.
+
     def train_epoch(self):
         self.model.train()
         running_loss, correct, total = 0.0, 0, 0
@@ -139,7 +152,10 @@ class Trainer:
             pbar.set_postfix({'Loss': f'{loss.item():.4f}', 'Acc': f'{100.0 * correct / max(1,total):.2f}%'})
 
         return running_loss / max(1, len(self.train_loader)), 100.0 * correct / max(1, total)
-
+# Valida una época.
+# Imprime el progreso de validación.
+# Devuelve la pérdida y la precisión de validación.
+# Usa tqdm para mostrar el progreso de validación.
     def validate_epoch(self):
         self.model.eval()
         running_loss, correct, total = 0.0, 0, 0
@@ -158,7 +174,10 @@ class Trainer:
                 pbar.set_postfix({'Loss': f'{loss.item():.4f}', 'Acc': f'{100.0 * correct / max(1,total):.2f}%'})
 
         return running_loss / max(1, len(self.val_loader)), 100.0 * correct / max(1, total)
-
+# Entrena el modelo.
+# Imprime el progreso de entrenamiento.
+# Devuelve el historial de entrenamiento.
+# Usa tqdm para mostrar el progreso de entrenamiento.
     def train(self):
         print("Iniciando entrenamiento...")
         start = time.time()
@@ -194,6 +213,10 @@ class Trainer:
         print(f"Mejor val_loss: {self.best_val_loss:.4f} | Mejor val_acc: {self.best_val_acc:.2f}%")
         return self.history
 
+# Evalúa el modelo.
+# Imprime el progreso de evaluación.
+# Devuelve el historial de evaluación.
+# Usa tqdm para mostrar el progreso de evaluación.
     def evaluate(self):
         print("\nEvaluando en conjunto de test...")
         self.model.eval()
@@ -229,7 +252,7 @@ class Trainer:
         np.savez("results/preds_test.npz", y_true=np.array(all_targets), y_pred=np.array(all_preds))
 
         return {'test_loss': test_loss, 'test_acc': test_acc}
-
+# Genera y guarda la matriz de confusión.
     def _plot_confusion_matrix(self, y_true, y_pred):
         os.makedirs("results", exist_ok=True)
         cm = confusion_matrix(y_true, y_pred)
@@ -240,7 +263,7 @@ class Trainer:
         plt.tight_layout()
         plt.savefig('results/confusion_matrix.png', dpi=150, bbox_inches='tight')
         plt.close()
-
+# Guarda checkpoint con estado del modelo, optimizador, configuración y historial.
     def save_model(self, filename):
         os.makedirs("results", exist_ok=True)
         torch.save({
@@ -249,7 +272,7 @@ class Trainer:
             'config': self.config,
             'history': self.history
         }, filename)
-
+# Genera y guarda gráficas de pérdida y precisión por época.
     def plot_history(self):
         os.makedirs("results", exist_ok=True)
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
@@ -264,6 +287,8 @@ class Trainer:
         plt.close()
 
 # ----------------------------- DataLoaders -----------------------------
+# Crea los DataLoaders para el entrenamiento, validación y test.
+# Devuelve los DataLoaders para el entrenamiento, validación y test y los pesos de clase.   
 def create_data_loaders(datasets, batch_size=64, num_workers=4, num_classes=15):
     """
     Crea los datasets combinados y DataLoaders.
@@ -299,6 +324,8 @@ def create_data_loaders(datasets, batch_size=64, num_workers=4, num_classes=15):
     return train_loader, val_loader, test_loader, class_weights_vec
 
 # ----------------------------- MAIN -----------------------------
+# Define configuración: batch, épocas, learning rate, weight decay, early stopping, workers, pesos de clase, gradient clipping y número de clases.
+# Inicializa la semilla y configura el dispositivo.
 def main():
     set_seed(42)
     config = {
@@ -312,39 +339,40 @@ def main():
         'grad_clip_norm': 1.0,
         'num_classes': 15
     }
-
+# Imprime la configuración.
     print("=== ENTRENAMIENTO RESNET-18 (AMP, val/época, class weights, grad clip) ===")
     print(json.dumps(config, indent=2))
-
+# Verifica si hay GPU disponible.
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Dispositivo: {device}")
     if device.type == 'cuda':
         print(f"GPU: {torch.cuda.get_device_name(0)}")
-
+# Carga los datasets.
     datasets = load_datasets('./data', target_size=224)
-
+# Crea los DataLoaders para el entrenamiento, validación y test.
     train_loader, val_loader, test_loader, class_weights_vec = create_data_loaders(
         datasets,
         batch_size=config['batch_size'],
         num_workers=config['num_workers'],
         num_classes=config['num_classes']
     )
-
+# Crea el modelo ResNet-18 con 15 clases.
     model = create_model(num_classes=config['num_classes'])
+# Crea el entrenador con el modelo, DataLoaders, dispositivo, configuración y pesos de clase (opcional).
     trainer = Trainer(
         model, train_loader, val_loader, test_loader, device, config,
         class_weights=class_weights_vec if config['use_class_weights'] else None
     )
-
+# Entrena el modelo.
     history = trainer.train()
 
-    # Cargar SIEMPRE el mejor checkpoint antes de evaluar
+    # Cargar SIEMPRE el mejor checkpoint antes de evaluar.
     best_ckpt = torch.load('results/best_model.pth', map_location=device)
     trainer.model.load_state_dict(best_ckpt['model_state_dict'])
-
+# Evalúa el modelo.
     results = trainer.evaluate()
     trainer.plot_history()
-
+# Guarda los resultados en un archivo JSON. 
     os.makedirs('results', exist_ok=True)
     with open('results/training_results.json', 'w') as f:
         json.dump({'config': config, 'history': history, 'results': results}, f, indent=2)
@@ -352,6 +380,19 @@ def main():
     print("\n=== ENTRENAMIENTO COMPLETADO ===")
     print(f"Precisión final en test: {results['test_acc']:.2f}%")
     print("Resultados guardados en carpeta 'results/'")
-
+# Ejecuta la función principal cuando se ejecuta el script directamente.
 if __name__ == "__main__":
     main()
+"""
+Resumen
+El script train.py entrena un modelo ResNet-18 con MedMNIST:
+1. Mixed precision (AMP): acelera el entrenamiento.
+2. Pesos de clase: balancea clases desbalanceadas.
+3. Gradient clipping: estabiliza el entrenamiento.
+4. Early stopping: evita sobreentrenamiento.
+5. ReduceLROnPlateau: ajusta el learning rate.
+6. Validación cada época: seguimiento continuo.
+7. Guardado del mejor modelo: evalúa siempre el mejor checkpoint.
+8. Evaluación completa: reporte de clasificación, matriz de confusión y guardado de predicciones.
+Incluye visualización de curvas y guardado de resultados para análisis posterior.
+"""

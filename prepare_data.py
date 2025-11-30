@@ -20,13 +20,15 @@ import matplotlib.pyplot as plt
 
 from dataset_wrapper import MedMNISTWrapper
 
-# Orden canónico para offsets estables
+# Define el orden canónico para calcular offsets de clase de forma consistente.
+# Este orden es importante para que los offsets se calculen correctamente cuando se combinan datasets.
 CANONICAL_ORDER = ["bloodmnist", "retinamnist", "breastmnist"]
 
 # -----------------------
 # Config y metadatos base
 # -----------------------
-
+# Obtiene información base de los datasets.
+# Devuelve un diccionario con metadatos de cada dataset: clase, info, tarea, canales originales/input y número de clases.
 def get_dataset_info() -> Dict[str, dict]:
     return {
         "bloodmnist": {
@@ -58,10 +60,11 @@ def get_dataset_info() -> Dict[str, dict]:
 # -----------------------
 # Transforms
 # -----------------------
-
+# Define las medias y desviaciones estándar para la normalización a 3 canales.
 _RGB_MEAN = [0.485, 0.456, 0.406]
 _RGB_STD  = [0.229, 0.224, 0.225]
-
+# Define las transformaciones para el entrenamiento.
+# Aplica redimensionamiento, flip horizontal, rotación, color jitter, conversión a RGB y normalización.
 def _make_train_transform(target_size: int, original_channels: int) -> transforms.Compose:
     to_rgb = []
     if original_channels == 1:
@@ -80,7 +83,8 @@ def _make_train_transform(target_size: int, original_channels: int) -> transform
         transforms.ToTensor(),
         transforms.Normalize(mean=_RGB_MEAN, std=_RGB_STD),
     ])
-
+# Define las transformaciones para la evaluación.
+# Aplica redimensionamiento, conversión a RGB y normalización.
 def _make_eval_transform(target_size: int, original_channels: int) -> transforms.Compose:
     to_rgb = []
     if original_channels == 1:
@@ -91,50 +95,53 @@ def _make_eval_transform(target_size: int, original_channels: int) -> transforms
         transforms.ToTensor(),
         transforms.Normalize(mean=_RGB_MEAN, std=_RGB_STD),
     ])
-
+# Crea las transformaciones para el entrenamiento y la evaluación.
 def create_transforms(target_size: int = 224, original_channels: int = 3) -> Tuple[transforms.Compose, transforms.Compose]:
     return _make_train_transform(target_size, original_channels), _make_eval_transform(target_size, original_channels)
 
 # -----------------------
 # Carga por dataset
 # -----------------------
-
+# Carga los datasets de MedMNIST.
+# Devuelve un diccionario con los datasets cargados: train, val, test y metadatos.
 def load_datasets(data_dir: str = "./data", target_size: int = 224) -> Dict[str, dict]:
     print("Cargando datasets de MedMNIST...")
     meta_all = get_dataset_info()
     os.makedirs(data_dir, exist_ok=True)
-
+    # Inicializa el diccionario de resultados.
     result: Dict[str, dict] = {}
     for name in CANONICAL_ORDER:
         meta = meta_all[name]
         print(f"\nCargando {name.upper()}...")
-
+        # Crea las transformaciones para el entrenamiento y la evaluación.
         train_tf, eval_tf = create_transforms(target_size, meta["original_channels"])
         cls = meta["class"]
-
+        # Carga los datasets de entrenamiento, validación y test.
         train_ds = cls(split="train", transform=train_tf, download=True, root=data_dir)
         val_ds   = cls(split="val",   transform=eval_tf, download=True, root=data_dir)
         test_ds  = cls(split="test",  transform=eval_tf, download=True, root=data_dir)
-
+        # Agrega los datasets al diccionario de resultados.
         result[name] = {
             "train": train_ds,
             "val":   val_ds,
             "test":  test_ds,
             "meta":  meta,
         }
-
+        # Imprime información sobre los datasets cargados.
         print(f"  - Entrenamiento: {len(train_ds)}")
         print(f"  - Validación:    {len(val_ds)}")
         print(f"  - Test:          {len(test_ds)}")
         print(f"  - Clases:        {meta['n_classes']}")
         print(f"  - Canales (orig):{meta['original_channels']} -> input: {meta['input_channels']}")
-
+    # Devuelve el diccionario de resultados.    
     return result
 
 # -----------------------
 # Combinación con offsets
 # -----------------------
-
+# Calcula los offsets de clase para combinar datasets.
+# BloodMNIST: 0 (8 clases: 0-7), RetinaMNIST: 8 (5 clases: 8-12)BreastMNIST: 13 (2 clases: 13-14), Total: 15 clases (0-14)
+# Devuelve un diccionario con los offsets de cada dataset.
 def _compute_offsets(names: Sequence[str], meta_all: Dict[str, dict]) -> Dict[str, int]:
     offsets = {}
     acc = 0
@@ -142,7 +149,9 @@ def _compute_offsets(names: Sequence[str], meta_all: Dict[str, dict]) -> Dict[st
         offsets[name] = acc
         acc += int(meta_all[name]["n_classes"])
     return offsets
-
+# Crea el dataset combinado con offsets de clase.
+# Combina los datasets de MedMNIST con offsets de clase para obtener un espacio global de 15 clases.
+# Devuelve un ConcatDataset con los datasets combinados.
 def create_combined_dataset(
     datasets: Dict[str, dict] | Sequence[str],
     split: str = "train",
@@ -175,13 +184,15 @@ def create_combined_dataset(
 # -----------------------
 # Visualización
 # -----------------------
-
+# Crea las transformaciones para la visualización.
+# Aplica redimensionamiento y conversión a tensor.
 def create_visualization_transforms(target_size: int = 224) -> transforms.Compose:
     return transforms.Compose([
         transforms.Resize((target_size, target_size)),
         transforms.ToTensor()
     ])
-
+# Visualiza muestras de los datasets.
+# Muestra 5 muestras de cada dataset en una cuadrícula.
 def visualize_samples(datasets: Dict[str, dict], num_samples: int = 5) -> None:
     rows = len(datasets)
     cols = num_samples
@@ -214,7 +225,8 @@ def visualize_samples(datasets: Dict[str, dict], num_samples: int = 5) -> None:
 # -----------------------
 # Persistencia de metadatos
 # -----------------------
-
+# Guarda la información de los datasets.
+# Guarda la información de los datasets en un archivo JSON.
 def save_dataset_info(datasets: Dict[str, dict], filename: str = "dataset_info.json") -> None:
     info_dict = {}
     for name in CANONICAL_ORDER:
@@ -241,7 +253,7 @@ def save_dataset_info(datasets: Dict[str, dict], filename: str = "dataset_info.j
 # -----------------------
 # Main
 # -----------------------
-
+# Main function que prepara los datos y crea los datasets combinados.
 def main():
     data_dir = "./data"
     target_size = 224
@@ -273,3 +285,17 @@ def main():
 
 if __name__ == "__main__":
     main()
+"""
+Resumen
+El script prepare_data.py prepara los datasets MedMNIST para ResNet-18:
+1. Configuración: define metadatos y orden canónico de los datasets.
+2. Transformaciones:
+- Entrenamiento: redimensiona, aumentos (flip, rotación, ColorJitter), conversión a RGB si es necesario, normalización.
+- Evaluación: redimensiona, conversión a RGB si es necesario, normalización.
+3. Carga: descarga y carga BloodMNIST, RetinaMNIST y BreastMNIST (train/val/test).
+4. Combinación: aplica offsets de clase para un espacio global de 15 clases (0-14).
+5. Visualización: genera una figura con muestras de cada dataset.
+6. Persistencia: guarda metadatos en JSON.
+
+Resultado: datasets listos para entrenar ResNet-18 con imágenes de 224x224, 3 canales y etiquetas en un espacio global de 15 clases.
+"""
