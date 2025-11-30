@@ -3,7 +3,7 @@ Utilidades de datos:
 - Collate function robusta para unificar a 3 canales (float32, [0,1]).
 - Creación de DataLoaders con opciones de reproducibilidad.
 """
-
+# Importaciones, ipos, aleatoriedad, NumPy, PyTorch, DataLoader, PIL y transforms.
 from __future__ import annotations
 from typing import Any, List, Sequence, Tuple, Optional
 
@@ -31,7 +31,11 @@ def _to_3ch_tensor(img: Any) -> torch.Tensor:
         t = F.pil_to_tensor(img.convert("RGB"))            # uint8, (3,H,W)
         t = F.convert_image_dtype(t, dtype=torch.float32)  # -> float32 [0,1]
         return t
-
+# Convierte una imagen a tensor CHW (3, H, W) float32 en [0, 1].
+# Soporta: PIL.Image, np.ndarray (H,W[,C]), torch.Tensor (CHW o HWC).
+# Si 1 canal -> repite a 3 canales.
+# Si HWC -> permuta a CHW
+# Si hay 1 canal, repite a 3; si no es 1 ni 3, lanza error
     # NumPy
     if isinstance(img, np.ndarray):
         arr = img
@@ -56,7 +60,11 @@ def _to_3ch_tensor(img: Any) -> torch.Tensor:
         elif t.shape[0] != 3:
             raise ValueError(f"Número de canales no soportado: {t.shape[0]}")
         return t
-
+# Convierte un tensor a tensor CHW (3, H, W) float32 en [0, 1].
+# Soporta: torch.Tensor (CHW o HWC).
+# Si 1 canal -> repite a 3 canales.
+# Si HWC -> permuta a CHW
+# Si hay 1 canal, repite a 3; si no es 1 ni 3, lanza error
     # Torch tensor
     if isinstance(img, torch.Tensor):
         t = img
@@ -83,7 +91,10 @@ def _to_3ch_tensor(img: Any) -> torch.Tensor:
 # -----------------------
 # Collate function
 # -----------------------
-
+# Collate function que:
+# - Acepta imágenes en PIL/np.ndarray/torch.Tensor.
+# - Normaliza a tensor float32 (3, H, W) en [0,1].
+# - Devuelve (batch_images, batch_labels).
 def custom_collate_fn(batch: Sequence[Tuple[Any, Any]]) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Collate que:
@@ -101,7 +112,8 @@ def custom_collate_fn(batch: Sequence[Tuple[Any, Any]]) -> Tuple[torch.Tensor, t
 # -----------------------
 # Reproducibilidad para DataLoader
 # -----------------------
-
+# Semillas deterministas por worker.
+# Semilla basada en la semilla inicial de PyTorch.
 def _seed_worker(worker_id: int) -> None:
     """Semillas deterministas por worker."""
     seed = torch.initial_seed() % 2**32
@@ -112,7 +124,7 @@ def _seed_worker(worker_id: int) -> None:
 # -----------------------
 # DataLoaders
 # -----------------------
-
+# Función principal: crea DataLoaders para train/val/test con normalización a 3 canales y opciones de reproducibilidad.
 def create_data_loaders_fixed(
     datasets: Sequence[str],
     batch_size: int = 32,
@@ -157,14 +169,13 @@ def create_data_loaders_fixed(
         generator = torch.Generator()
         generator.manual_seed(seed)
         worker_fn = _seed_worker
-        # Semillas mínimas por si el usuario no las puso en otra parte
         random.seed(seed)
         np.random.seed(seed)
         torch.manual_seed(seed)
 
     pin_memory = torch.cuda.is_available()
     persistent = bool(num_workers) and (num_workers or 0) > 0
-
+# Crea el DataLoader para train.
     train_loader = DataLoader(
         train_ds,
         batch_size=batch_size,
@@ -177,7 +188,7 @@ def create_data_loaders_fixed(
         generator=generator,
         persistent_workers=persistent,
     )
-
+# Crea el DataLoader para validación.
     val_loader = DataLoader(
         val_ds,
         batch_size=batch_size,
@@ -190,7 +201,7 @@ def create_data_loaders_fixed(
         generator=generator,
         persistent_workers=persistent,
     )
-
+# Crea el DataLoader para test.
     test_loader = DataLoader(
         test_ds,
         batch_size=batch_size,
@@ -203,7 +214,7 @@ def create_data_loaders_fixed(
         generator=generator,
         persistent_workers=persistent,
     )
-
+#mImprime resumen y devuelve los tres DataLoaders.
     print(
         f"DataLoaders creados:\n"
         f"  - Train: {len(train_ds)} muestras, {len(train_loader)} batches\n"
@@ -212,3 +223,13 @@ def create_data_loaders_fixed(
     )
 
     return train_loader, val_loader, test_loader
+    """
+    Resumen
+    El script data_utils.py proporciona:
+    1. Normalización de imágenes: _to_3ch_tensor convierte PIL/NumPy/Tensor a tensor (3, H, W) float32 en [0, 1], repitiendo canales si es necesario.
+    2. Collate function: custom_collate_fn agrupa batches normalizando todas las imágenes.
+    3. Reproducibilidad: _seed_worker y configuración de generadores para resultados deterministas.
+    4. DataLoaders: create_data_loaders_fixed crea train/val/test con configuración consistente.
+   
+    Útil para trabajar con datasets médicos (MedMNIST) que pueden tener formatos variados, asegurando que todas las imágenes lleguen al modelo en el mismo formato (3 canales, float32, [0, 1]).
+    """

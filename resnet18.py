@@ -13,30 +13,12 @@ def set_seed(seed=42):
     torch.cuda.manual_seed_all(seed)
     # Rendimiento en GPU:
     torch.backends.cudnn.benchmark = True
-    # Si quisieras determinismo duro, pondrías deterministic=True y benchmark=False,
-    # pero perderías rendimiento y no es necesario aquí.
 
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, in_channels, out_channels, stride=1, downsample=None):
-        super().__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, 3, stride=stride, padding=1, bias=False)
-        self.bn1   = nn.BatchNorm2d(out_channels)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, 3, stride=1, padding=1, bias=False)
-        self.bn2   = nn.BatchNorm2d(out_channels)
-        self.downsample = downsample
-        self.relu = nn.ReLU(inplace=True)
-
-    def forward(self, x):
-        residual = x
-        out = self.relu(self.bn1(self.conv1(x)))
-        out = self.bn2(self.conv2(out))
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out = self.relu(out + residual)
-        return out
-
+# Bloque básico de ResNet con conexiones residuales. Dos convoluciones 3x3  y una conexión residual.
+# El bloque básico se repite en las capas residuales para construir la red.
+# in_channels es el número de canales de entrada, out_channels es el número de canales de salida,
+# stride es el stride de la primera convolución, downsample es la conexión residual.
+# El bloque básico se repite en las capas residuales para construir la red.
 class ResNet18(nn.Module):
     def __init__(self, num_classes=15, input_channels=3):
         super().__init__()
@@ -46,7 +28,7 @@ class ResNet18(nn.Module):
         self.conv1 = nn.Conv2d(input_channels, 64, 7, stride=2, padding=3, bias=False)
         self.bn1   = nn.BatchNorm2d(64)
         self.maxpool = nn.MaxPool2d(3, stride=2, padding=1)
-
+# Construye 4 capas con BasicBlock (64→128→256→512 canales), cada una con 2 bloques. Pooling adaptativo y capa lineal final.
         self.layer1 = self._make_layer(BasicBlock, 64,  2, stride=1)
         self.layer2 = self._make_layer(BasicBlock, 128, 2, stride=2)
         self.layer3 = self._make_layer(BasicBlock, 256, 2, stride=2)
@@ -54,9 +36,18 @@ class ResNet18(nn.Module):
 
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc      = nn.Linear(512, num_classes)
-
+# Inicialización de pesos.
+# Inicialización: capa inicial 7x7 (stride 2), BatchNorm, MaxPooling.
+# 4 capas residuales: 2 bloques BasicBlock con 64 canales, 2 bloques BasicBlock con 128 canales, 2 bloques BasicBlock con 256 canales, 2 bloques BasicBlock con 512 canales.
+# Capa final: AdaptiveAvgPool2d (1, 1), Linear (512 → num_classes).
         self._initialize_weights()
 
+# Creación de capas residuales.
+# Se crea una capa residual con el bloque básico y se repite para construir la red.
+# out_channels es el número de canales de salida, blocks es el número de bloques,
+# stride es el stride de la primera convolución.
+# downsample es la conexión residual.
+# El bloque básico se repite en las capas residuales para construir la red.
     def _make_layer(self, block, out_channels, blocks, stride=1):
         downsample = None
         if stride != 1 or self.in_channels != out_channels * block.expansion:
@@ -70,6 +61,7 @@ class ResNet18(nn.Module):
         for _ in range(1, blocks):
             layers.append(block(self.in_channels, out_channels))
         return nn.Sequential(*layers)
+# Se inicializan los pesos de la red usando el método de inicialización de Kaiming.
 
     def _initialize_weights(self):
         for m in self.modules():
@@ -81,7 +73,7 @@ class ResNet18(nn.Module):
             elif isinstance(m, nn.Linear):
                 nn.init.normal_(m.weight, 0, 0.01)
                 nn.init.constant_(m.bias, 0)
-
+# Forward: capa inicial, pooling, 4 capas residuales, pooling adaptativo, aplanado y salida lineal.
     def forward(self, x):
         x = self.relu(self.bn1(self.conv1(x)))
         x = self.maxpool(x)
@@ -90,13 +82,14 @@ class ResNet18(nn.Module):
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
         return self.fc(x)
-
+# Contiene dos modelos: uno para RGB (3 canales) y otro para escala de grises (1 canal).
+# Forward: si es RGB, se usa el modelo RGB, si es escala de grises, se usa el modelo escala de grises.
 class ResNet18Adaptive(nn.Module):
     def __init__(self, num_classes=15):
         super().__init__()
         self.rgb_model  = ResNet18(num_classes=num_classes, input_channels=3)
         self.gray_model = ResNet18(num_classes=num_classes, input_channels=1)
-
+# Selecciona el modelo según el número de canales de entrada.
     def forward(self, x):
         if x.shape[1] == 3:
             return self.rgb_model(x)
@@ -104,12 +97,11 @@ class ResNet18Adaptive(nn.Module):
             return self.gray_model(x)
         else:
             raise ValueError(f"Canales no soportados: {x.shape[1]} (esperado 1 o 3)")
-
+# Crea el modelo ResNet-18 adaptativo,  cuenta parámetros e imprime estadísticas.
 def create_model(num_classes=15, pretrained=False):
     if pretrained:
         print("⚠️ ResNet-18 personalizado no tiene pesos preentrenados disponibles; se usará inicialización aleatoria.")
     model = ResNet18Adaptive(num_classes=num_classes)
-
     total = sum(p.numel() for p in model.parameters())
     train = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print("Modelo ResNet-18 creado:")
@@ -117,7 +109,8 @@ def create_model(num_classes=15, pretrained=False):
     print(f"  - Parámetros entrenables: {train:,}")
     print(f"  - Número de clases: {num_classes}")
     return model
-
+# Prueba el modelo con imágenes RGB y en escala de grises, verificando que la salida tenga la forma esperada (batch_size, 15).
+# Si la salida no tiene la forma esperada, lanza un error.
 if __name__ == "__main__":
     print("Probando modelo ResNet-18...")
     set_seed(42)
