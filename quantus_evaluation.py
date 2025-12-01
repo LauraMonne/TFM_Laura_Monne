@@ -17,7 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from typing import Dict, List
+from typing import Dict, List, Callable
 
 import numpy as np
 import torch
@@ -176,6 +176,78 @@ def compute_attributions(
 
 
 # ============================================================
+#  explain_func para métricas que lo requieren (robustness, randomization)
+# ============================================================
+
+
+def build_explain_func(
+    explainer: XAIExplainer,
+    method: str,
+    device: torch.device,
+) -> Callable:
+    """
+    Construye una explain_func compatible con Quantus.
+    Firma esperada: explain_func(model, inputs, targets, **kwargs) -> np.ndarray
+    """
+
+    def explain_func(model, inputs, targets, **kwargs):
+        # inputs puede venir como np.ndarray o torch.Tensor, BCHW o BHWC
+        if isinstance(inputs, np.ndarray):
+            x = torch.tensor(inputs, dtype=torch.float32)
+        else:
+            x = inputs
+
+        if x.ndim == 4 and x.shape[-1] in (1, 3):  # BHWC -> BCHW
+            x = x.permute(0, 3, 1, 2)
+
+        x = x.to(device)
+
+        if isinstance(targets, np.ndarray):
+            y = torch.tensor(targets, dtype=torch.long, device=device)
+        else:
+            y = targets.to(device)
+
+        attributions: List[torch.Tensor] = []
+        for i in range(len(x)):
+            sample = x[i : i + 1]
+            target_class = int(y[i].item())
+            try:
+                if method == "gradcam":
+                    result = explainer.generate_gradcam(sample, target_class, save_path=None)
+                    if result is None:
+                        raise RuntimeError("Grad-CAM retornó None")
+                    _, heatmap = result
+                    attr = expand_heatmap_to_channels(heatmap, sample.shape[1])
+                elif method == "gradcampp":
+                    result = explainer.generate_gradcampp(sample, target_class, save_path=None)
+                    if result is None:
+                        raise RuntimeError("Grad-CAM++ retornó None")
+                    _, heatmap = result
+                    attr = expand_heatmap_to_channels(heatmap, sample.shape[1])
+                elif method == "integrated_gradients":
+                    result = explainer.generate_integrated_gradients(sample, target_class, save_path=None)
+                    if result is None:
+                        raise RuntimeError("IG retornó None")
+                    attr = result[1][0].detach().cpu()
+                elif method == "saliency":
+                    result = explainer.generate_saliency_map(sample, target_class, save_path=None)
+                    if result is None:
+                        raise RuntimeError("Saliency retornó None")
+                    attr = result[1][0].detach().cpu()
+                else:
+                    raise ValueError(f"Método desconocido: {method}")
+            except Exception as err:
+                print(f"⚠️ Error en explain_func para muestra {i}: {err}")
+                attr = torch.zeros_like(sample[0].cpu())
+            attributions.append(attr)
+
+        # Devuelve BCHW como NumPy
+        return torch.stack(attributions, dim=0).detach().cpu().numpy()
+
+    return explain_func
+
+
+# ============================================================
 #  Métricas de Quantus
 # ============================================================
 
@@ -246,17 +318,30 @@ def evaluate_methods(
 
         method_results: Dict[str, Dict[str, float]] = {}
 
+        # explain_func para métricas que lo requieren (robustness, randomization)
+        explain_fn = build_explain_func(explainer, method, device)
+
         for metric_name, metric in metrics.items():
             print(f" -> Métrica: {metric_name}")
             try:
-                # Llamada directa a Quantus (x_batch y a_batch en BCHW, mismo layout)
-                scores = metric(
-                    model=model,
-                    x_batch=x_np,
-                    y_batch=y_np,
-                    a_batch=attr_np,
-                    device=device,
-                )
+                # Robustez y aleatorización: usar explain_func (Quantus calcula a_batch internamente)
+                if metric_name in {"robustness", "randomization"}:
+                    scores = metric(
+                        model=model,
+                        x_batch=x_np,
+                        y_batch=y_np,
+                        explain_func=explain_fn,
+                        device=device,
+                    )
+                else:
+                    # Resto de métricas: usar atribuciones precomputadas (a_batch)
+                    scores = metric(
+                        model=model,
+                        x_batch=x_np,
+                        y_batch=y_np,
+                        a_batch=attr_np,
+                        device=device,
+                    )
 
                 scores = np.array(scores, dtype=float).flatten()
                 mean = float(np.nanmean(scores))
