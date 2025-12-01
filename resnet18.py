@@ -14,11 +14,30 @@ def set_seed(seed=42):
     # Rendimiento en GPU:
     torch.backends.cudnn.benchmark = True
 
-# Bloque básico de ResNet con conexiones residuales. Dos convoluciones 3x3  y una conexión residual.
-# El bloque básico se repite en las capas residuales para construir la red.
-# in_channels es el número de canales de entrada, out_channels es el número de canales de salida,
-# stride es el stride de la primera convolución, downsample es la conexión residual.
-# El bloque básico se repite en las capas residuales para construir la red.
+class BasicBlock(nn.Module):
+    """Bloque básico de ResNet con conexión residual."""
+
+    expansion = 1
+
+    def __init__(self, in_channels, out_channels, stride=1, downsample=None):
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, 3, stride=stride, padding=1, bias=False)
+        self.bn1   = nn.BatchNorm2d(out_channels)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, 3, stride=1, padding=1, bias=False)
+        self.bn2   = nn.BatchNorm2d(out_channels)
+        self.downsample = downsample
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, x):
+        residual = x
+        out = self.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        out = self.relu(out + residual)
+        return out
+
+
 class ResNet18(nn.Module):
     def __init__(self, num_classes=15, input_channels=3):
         super().__init__()
