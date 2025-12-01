@@ -343,7 +343,27 @@ def evaluate_methods(
                         device=device,
                     )
 
-                scores = np.array(scores, dtype=float).flatten()
+                # Algunas métricas (p.ej. randomization) pueden devolver un dict.
+                if isinstance(scores, dict):
+                    # Caso típico: clave 'scores'
+                    if "scores" in scores:
+                        raw_scores = scores["scores"]
+                    else:
+                        # Buscar el primer valor que parezca una colección numérica
+                        raw_scores = None
+                        for v in scores.values():
+                            if isinstance(v, (list, tuple, np.ndarray)):
+                                raw_scores = v
+                                break
+                        if raw_scores is None:
+                            raise TypeError(
+                                f"Formato de salida de métrica '{metric_name}' no soportado: claves={list(scores.keys())}"
+                            )
+                else:
+                    raw_scores = scores
+
+                raw_scores = np.array(raw_scores, dtype=float).flatten()
+                scores = raw_scores
                 mean = float(np.nanmean(scores))
                 std = float(np.nanstd(scores))
 
