@@ -26,27 +26,29 @@ import matplotlib.pyplot as plt
 warnings.filterwarnings("ignore")
 
 # ====== Librerías externas de XAI ======
+# Librerías externas de XAI: pytorch-grad-cam, captum y quantus.
+
 try:
     from pytorch_grad_cam import GradCAM, GradCAMPlusPlus
     from pytorch_grad_cam.utils.image import show_cam_on_image
     GRAD_CAM_AVAILABLE = True
 except ImportError:
     GRAD_CAM_AVAILABLE = False
-    print("⚠️ pytorch-grad-cam no disponible. Instala con: pip install grad-cam")
+    print("pytorch-grad-cam no disponible. Instala con: pip install grad-cam")
 
 try:
     from captum.attr import IntegratedGradients, Saliency
     CAPTUM_AVAILABLE = True
 except ImportError:
     CAPTUM_AVAILABLE = False
-    print("⚠️ captum no disponible. Instala con: pip install captum")
+    print("captum no disponible. Instala con: pip install captum")
 
 try:
-    import quantus  # solo para dejar constancia; no se usa directamente aquí
+    import quantus 
     QUANTUS_AVAILABLE = True
 except ImportError:
     QUANTUS_AVAILABLE = False
-    print("⚠️ quantus no disponible. Instala con: pip install quantus")
+    print("quantus no disponible. Instala con: pip install quantus")
 
 # ====== Módulos propios del repo ======
 from prepare_data import load_datasets
@@ -57,7 +59,7 @@ from data_utils import create_data_loaders_fixed
 # ============================================================
 #  Utilidades de directorios e imagen
 # ============================================================
-
+# Crea las carpetas de salida si no existen.
 def _ensure_dirs():
     os.makedirs("outputs", exist_ok=True)
     os.makedirs("outputs/gradcam", exist_ok=True)
@@ -65,6 +67,8 @@ def _ensure_dirs():
     os.makedirs("outputs/integrated_gradients", exist_ok=True)
     os.makedirs("outputs/saliency", exist_ok=True)
 
+# Desnormaliza una imagen.
+# Convierte un tensor (1, C, H, W) o (C, H, W) a una imagen numpy (H, W, 3) en rango [0,1].
 
 def _denormalize_image(
     img_tensor: torch.Tensor,
@@ -98,6 +102,7 @@ def _denormalize_image(
 # ============================================================
 #  Clase principal de explicabilidad
 # ============================================================
+# Inicializa el modelo, las capas target y los métodos Captum si están disponibles.
 
 class XAIExplainer:
     def __init__(self, model: nn.Module, device: torch.device, num_classes: int = 15):
@@ -107,13 +112,13 @@ class XAIExplainer:
         self.num_classes = num_classes
         _ensure_dirs()
 
-        # Métodos Captum (si están disponibles)
+        # Métodos Captum
         if CAPTUM_AVAILABLE:
             try:
                 self.ig = IntegratedGradients(self.model)
                 self.saliency = Saliency(self.model)
             except Exception as e:
-                print(f"⚠️ Error inicializando Captum: {e}")
+                print(f"Error inicializando Captum: {e}")
                 self.ig = None
                 self.saliency = None
         else:
@@ -121,6 +126,7 @@ class XAIExplainer:
             self.saliency = None
 
     # ----------------- Grad-CAM helpers -----------------
+    # Obtiene el modelo base y las capas target para Grad-CAM.
     def _get_gradcam_target(self, input_tensor: torch.Tensor):
         """
         Devuelve (modelo_base, [layer_target]) para Grad-CAM.
@@ -164,7 +170,7 @@ class XAIExplainer:
                     return flat[0]
 
         return ClassTarget(cls_idx)
-
+# Genera Grad-CAM y devuelve (overlay_img, heatmap_2d)
     def generate_gradcam(self, input_tensor: torch.Tensor, target_class: int, save_path: str | None):
         """
         Genera Grad-CAM y devuelve (overlay_img, heatmap_2d)
@@ -197,9 +203,9 @@ class XAIExplainer:
             return overlay, grayscale_cam[0]
 
         except Exception as e:
-            print(f"⚠️ Error en Grad-CAM: {e}")
+            print(f"Error en Grad-CAM: {e}")
             return None
-
+# Genera Grad-CAM++ y devuelve (overlay_img, heatmap_2d)
     def generate_gradcampp(self, input_tensor: torch.Tensor, target_class: int, save_path: str | None):
         """
         Genera Grad-CAM++ y devuelve (overlay_img, heatmap_2d)
@@ -232,10 +238,12 @@ class XAIExplainer:
             return overlay, grayscale_cam[0]
 
         except Exception as e:
-            print(f"⚠️ Error en Grad-CAM++: {e}")
+            print(f"Error en Grad-CAM++: {e}")
             return None
 
     # ----------------- Integrated Gradients -----------------
+    # Genera mapas de Integrated Gradients.
+    # Devuelve (attr_hwc_normalizada, tensor_attrib_original)
     def generate_integrated_gradients(self, input_tensor: torch.Tensor, target_class: int, save_path: str | None):
         """
         Genera mapas de Integrated Gradients.
@@ -286,10 +294,12 @@ class XAIExplainer:
             return attr_hwc, attributions
 
         except Exception as e:
-            print(f"⚠️ Error en Integrated Gradients: {e}")
+            print(f"Error en Integrated Gradients: {e}")
             return None
 
     # ----------------- Saliency Map -----------------
+    # Genera mapas de saliencia (Vanilla Saliency).
+    # Devuelve (saliency_hwc_normalizada, tensor_attrib_original)
     def generate_saliency_map(self, input_tensor: torch.Tensor, target_class: int, save_path: str | None):
         """
         Genera mapas de saliencia (Vanilla Saliency).
@@ -337,10 +347,11 @@ class XAIExplainer:
             return saliency_hwc, attributions
 
         except Exception as e:
-            print(f"⚠️ Error en Saliency Map: {e}")
+            print(f"Error en Saliency Map: {e}")
             return None
 
     # ----------------- Wrapper: generar todo para una imagen -----------------
+    # Genera todas las explicaciones para una imagen: ejecuta Grad-CAM, Grad-CAM++, Integrated Gradients y Saliency, guarda los mapas y devuelve un diccionario con rutas y estados.
     def generate_all_explanations(self, input_tensor: torch.Tensor, pred_class: int, image_idx: int) -> Dict:
         """
         Genera Grad-CAM, Grad-CAM++, IG y Saliency para una sola imagen.
@@ -398,7 +409,6 @@ class XAIExplainer:
 # ============================================================
 #  Carga del modelo entrenado
 # ============================================================
-
 def load_trained_model(model_path: str, device: torch.device, num_classes: int = 15) -> nn.Module:
     print(f"Cargando modelo desde {model_path}...")
     model = create_model(num_classes=num_classes)
@@ -406,36 +416,34 @@ def load_trained_model(model_path: str, device: torch.device, num_classes: int =
     model.load_state_dict(checkpoint["model_state_dict"])
     model.to(device)
     model.eval()
-    print("✅ Modelo cargado correctamente.")
+    print("Modelo cargado correctamente.")
     return model
 
 
 # ============================================================
-#  Evaluación cuantitativa (stub seguro)
+#  Evaluación cuantitativa
 # ============================================================
 
-def evaluate_with_quantus_stub():
+def evaluate_with_quantus():
     """
     Stub MUY simple para evitar errores con versiones de Quantus.
     Deja constancia en consola de que la evaluación cuantitativa
     puede hacerse con Quantus, pero no se fuerza aquí.
     """
     if not QUANTUS_AVAILABLE:
-        print("\nℹ️ Quantus no está instalado: se omite la evaluación cuantitativa automática.")
+        print("\nQuantus no está instalado: se omite la evaluación cuantitativa automática.")
         return
 
     print(
-        "\nℹ️ Quantus está instalado, pero por compatibilidad de versiones "
+        "\nQuantus está instalado, pero por compatibilidad de versiones "
         "la evaluación cuantitativa detallada no se ejecuta automáticamente "
-        "en este script. Los mapas generados pueden evaluarse con Quantus "
-        "en un notebook dedicado."
+        "en este script."
     )
 
 
 # ============================================================
 #  main()
 # ============================================================
-
 def main():
     print("=" * 60)
     print("EXPLICABILIDAD (XAI) - ResNet-18 MedMNIST")
@@ -447,13 +455,13 @@ def main():
     model_path = "results/best_model.pth"
     if not os.path.exists(model_path):
         raise FileNotFoundError(
-            f"❌ No se ha encontrado {model_path}. "
+            f"No se ha encontrado {model_path}. "
             f"Ejecuta primero: python train.py"
         )
 
     num_classes = 15
 
-    # Nº máximo de explicaciones por dataset (se puede ajustar)
+    # Nº máximo de explicaciones por dataset
     max_blood = 300
     max_retina = 150
     max_breast = 50
@@ -562,7 +570,7 @@ def main():
     evaluate_with_quantus_stub()
 
     print("\n" + "=" * 60)
-    print("✅ EXPLICABILIDAD COMPLETADA")
+    print("EXPLICABILIDAD COMPLETADA")
     print("=" * 60)
     print("Mapas guardados en 'outputs/':")
     print("  - Grad-CAM:             outputs/gradcam/")
@@ -575,3 +583,24 @@ def main():
 
 if __name__ == "__main__":
     main()
+"""
+Resumen
+Explicaciones XAI para ResNet-18:
+1. Métodos implementados:
+- Grad-CAM: mapas de activación con gradientes
+- Grad-CAM++: versión mejorada de Grad-CAM
+- Integrated Gradients: atribuciones integradas desde un baseline
+- Saliency Maps: mapas de saliencia basados en gradientes
+2. Proceso:
+- Carga el modelo entrenado
+- Carga datos de test
+- Muestreo estratificado (300 Blood, 150 Retina, 50 Breast)
+- Genera todas las explicaciones para cada imagen
+- Guarda mapas PNG en directorios organizados
+- Guarda metadatos en JSON
+3. Salidas:
+- Mapas PNG en outputs/ (subdirectorios por método)
+- Metadatos en outputs/explanations_results.json
+Útil para analizar qué regiones de las imágenes son más importantes para las predicciones del modelo.
+
+"""

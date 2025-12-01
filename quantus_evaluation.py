@@ -1,23 +1,23 @@
 """
 Evaluación cuantitativa de explicabilidad usando Quantus.
 
-Mide 5 dimensiones para Grad-CAM, Grad-CAM++ (opcional),
-Integrated Gradients y Saliency:
-- Fidelidad (FaithfulnessCorrelation)
-- Robustez (AvgSensitivity)
-- Complejidad (Complexity/Entropy)
-- Aleatorización (ModelParameterRandomisation/MPRT)
-- Localización (RegionPerturbation como aproximación de Localization Ratio)
+Mide 5 dimensiones para varios métodos XAI (Grad-CAM, Grad-CAM++, IG, Saliency):
+- Fidelidad      -> FaithfulnessCorrelation
+- Robustez       -> AvgSensitivity
+- Complejidad    -> Complexity (o Entropy)
+- Aleatorización -> MPRT / ModelParameterRandomisation
+- Localización   -> RegionPerturbation
 
-Uso:
+Uso típico:
     python quantus_evaluation.py --num_samples 30 --methods gradcam integrated_gradients saliency
 """
+
+from __future__ import annotations
 
 import argparse
 import json
 import os
-import traceback
-from typing import Dict
+from typing import Dict, List
 
 import numpy as np
 import torch
@@ -27,24 +27,23 @@ try:
     import quantus
 except ImportError as exc:
     raise SystemExit(
-        "❌ quantus no está instalado. Ejecuta: pip install quantus"
+        "quantus no está instalado. Ejecuta: pip install quantus"
     ) from exc
 
 from prepare_data import load_datasets
 from data_utils import create_data_loaders_fixed
-from xai_explanations import (
-    XAIExplainer,
-    load_trained_model,
-)
+from xai_explanations import XAIExplainer, load_trained_model
 
 
 # ============================================================
 #  Argumentos de línea de comandos
 # ============================================================
 
-def parse_args():
+# Construye el parser de argumentos.
+
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Evaluación cuantitativa de XAI con Quantus."
+        description="Evaluación cuantitativa de XAI con Quantus (versión simplificada)."
     )
     parser.add_argument(
         "--model_path",
@@ -80,11 +79,6 @@ def parse_args():
         help="Métodos XAI a evaluar (gradcam, gradcampp, integrated_gradients, saliency).",
     )
     parser.add_argument(
-        "--skip_slow_metrics",
-        action="store_true",
-        help="Saltar métricas lentas (robustness, randomization).",
-    )
-    parser.add_argument(
         "--output",
         default="outputs/quantus_metrics.json",
         help="Ruta de guardado para los resultados.",
@@ -96,9 +90,13 @@ def parse_args():
 #  Utilidades de datos
 # ============================================================
 
-def collect_samples(test_loader, num_samples, device):
+# Recopila muestras del conjunto de test.
+# Devuelve un tensor BCHW (batch, channels, height, width).
+# y un tensor BHWC (batch, height, width, channels).
+def collect_samples(test_loader, num_samples: int, device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
     """Recopila x_batch, y_batch del conjunto de test."""
-    xs, ys = [], []
+    xs: List[torch.Tensor] = []
+    ys: List[torch.Tensor] = []
     with torch.no_grad():
         for idx, (data, target) in enumerate(tqdm(test_loader, desc="Recolectando muestras")):
             if idx >= num_samples:
@@ -111,15 +109,12 @@ def collect_samples(test_loader, num_samples, device):
     y_batch = torch.cat(ys, dim=0).to(device)
     return x_batch, y_batch
 
-
-def hwc(tensor_batch: torch.Tensor) -> np.ndarray:
-    """Convierte lote BCHW -> BHWC para Quantus."""
-    np_batch = tensor_batch.detach().cpu().numpy()
+# Convierte un tensor BCHW a BHWC para Quantus.
+def to_bhwc(tensor_batch: torch.Tensor) -> np.ndarray:
+    """Convierte lote BCHW -> BHWC (formato común en Quantus)."""
+    np_batch = tensor_batch.detach().cpu().numpy()  # (B, C, H, W)
     if np_batch.ndim == 4:
-        # Si está en formato BCHW (batch, channels, height, width)
-        if np_batch.shape[1] in (1, 3) and np_batch.shape[-1] not in (1, 3):
-            np_batch = np.transpose(np_batch, (0, 2, 3, 1))  # BCHW -> BHWC
-        # Si ya está en BHWC, no hacer nada
+        np_batch = np.transpose(np_batch, (0, 2, 3, 1))  # BCHW -> BHWC
     return np_batch
 
 
@@ -127,12 +122,13 @@ def hwc(tensor_batch: torch.Tensor) -> np.ndarray:
 #  Atribuciones XAI (reutiliza XAIExplainer)
 # ============================================================
 
+# Expande un heatmap HxW a CxHxW repitiendo por canal.
 def expand_heatmap_to_channels(heatmap: np.ndarray, channels: int) -> torch.Tensor:
     """Expande un heatmap HxW a CxHxW repitiendo por canal."""
     if heatmap.ndim != 2:
         raise ValueError("El heatmap debe ser 2D.")
     tensor = torch.tensor(heatmap, dtype=torch.float32)
-    tensor = tensor.unsqueeze(0).repeat(channels, 1, 1)  # Resultado: (C, H, W)
+    tensor = tensor.unsqueeze(0).repeat(channels, 1, 1)  # (C, H, W)
     return tensor
 
 
@@ -142,428 +138,149 @@ def compute_attributions(
     preds: torch.Tensor,
     method: str,
 ) -> torch.Tensor:
-    """Genera atribuciones para todo el batch usando el método especificado."""
-    attributions = []
+    """
+    Genera atribuciones para todo el batch usando el método especificado.
+    Devuelve un tensor BCHW (batch, channels, height, width).
+    """
+    attributions: List[torch.Tensor] = []
     for idx in tqdm(range(len(x_batch)), desc=f"Atribuciones {method}"):
         sample = x_batch[idx : idx + 1]
         target_class = int(preds[idx].item())
         try:
             if method == "gradcam":
-                result = explainer.generate_gradcam(
-                    sample, target_class, save_path=None
-                )
+                result = explainer.generate_gradcam(sample, target_class, save_path=None)
                 if result is None:
                     raise RuntimeError("Grad-CAM retornó None")
                 _, heatmap = result
                 attr = expand_heatmap_to_channels(heatmap, sample.shape[1])
             elif method == "gradcampp":
-                result = explainer.generate_gradcampp(
-                    sample, target_class, save_path=None
-                )
+                result = explainer.generate_gradcampp(sample, target_class, save_path=None)
                 if result is None:
                     raise RuntimeError("Grad-CAM++ retornó None")
                 _, heatmap = result
                 attr = expand_heatmap_to_channels(heatmap, sample.shape[1])
             elif method == "integrated_gradients":
-                result = explainer.generate_integrated_gradients(
-                    sample, target_class, save_path=None
-                )
+                result = explainer.generate_integrated_gradients(sample, target_class, save_path=None)
                 if result is None:
                     raise RuntimeError("IG retornó None")
-                attr = result[1][0].detach().cpu()
+                attr = result[1][0].detach().cpu()  # (C, H, W)
             elif method == "saliency":
-                result = explainer.generate_saliency_map(
-                    sample, target_class, save_path=None
-                )
+                result = explainer.generate_saliency_map(sample, target_class, save_path=None)
                 if result is None:
                     raise RuntimeError("Saliency retornó None")
-                attr = result[1][0].detach().cpu()
+                attr = result[1][0].detach().cpu()  # (C, H, W)
             else:
                 raise ValueError(f"Método desconocido: {method}")
-        except Exception as err:  # noqa: BLE001
+        except Exception as err:
             print(f"⚠️ Error generando atribución para muestra {idx}: {err}")
             attr = torch.zeros_like(sample[0].cpu())
         attributions.append(attr)
-    return torch.stack(attributions, dim=0)
+    return torch.stack(attributions, dim=0)  # (B, C, H, W)
 
 
 # ============================================================
-#  Evaluación con Quantus
+#  Métricas de Quantus
 # ============================================================
 
-class ModelWrapper(torch.nn.Module):
-    """Wrapper explícito para asegurar compatibilidad con Quantus."""
+# Crea un conjunto estándar de métricas de Quantus.
+# Devuelve un diccionario con las métricas.
+def create_metrics() -> Dict[str, object]:
+    """Crea un conjunto estándar de métricas de Quantus."""
+    metrics: Dict[str, object] = {}
 
-    def __init__(self, model):
-        super().__init__()
-        self.model = model
+    # Fidelidad
+    metrics["faithfulness"] = quantus.FaithfulnessCorrelation()
 
-    def forward(self, x):
-        return self.model(x)
+    # Robustez
+    metrics["robustness"] = quantus.AvgSensitivity()
 
-    def __getattr__(self, name):
-        # Delegar atributos al modelo subyacente
-        return getattr(self.model, name)
+    # Complejidad o Entropy
+    try:
+        metrics["complexity"] = quantus.Complexity()
+    except AttributeError:
+        metrics["complexity"] = quantus.Entropy()
 
-
-def build_predict_fn(model: torch.nn.Module, device: torch.device):
-    """Devuelve una función predict_func compatible con Quantus."""
-
-    def predict(x_np: np.ndarray):
-        model.eval()
-        with torch.no_grad():
-            if not isinstance(x_np, np.ndarray):
-                raise TypeError("predict_func espera un np.ndarray")
-            tensor = torch.tensor(x_np, dtype=torch.float32)
-            if tensor.ndim == 4 and tensor.shape[-1] in (1, 3):
-                tensor = tensor.permute(0, 3, 1, 2)
-            tensor = tensor.to(device)
-            logits = model(tensor)
-            probs = torch.softmax(logits, dim=1)
-            return probs.detach().cpu().numpy()
-
-    return predict
-
-
-def evaluate_metric(metric, model, wrapped_model, x_batch_np, y_batch_np, a_batch_np, device, explain_func=None):
-    """Evalúa una métrica de Quantus pasando el modelo directamente."""
-    # Intentar múltiples formas de pasar el modelo
-    methods_to_try = []
-    
-    # Método 1: Con explain_func si está disponible (para robustness, randomization)
-    if explain_func is not None:
-        methods_to_try.append(
-            lambda: metric(
-                model=wrapped_model,
-                x_batch=x_batch_np,
-                y_batch=y_batch_np,
-                a_batch=a_batch_np,
-                explain_func=explain_func,
-                device=device,
-            )
-        )
-        methods_to_try.append(
-            lambda: metric(
-                model=model,
-                x_batch=x_batch_np,
-                y_batch=y_batch_np,
-                a_batch=a_batch_np,
-                explain_func=explain_func,
-                device=device,
-            )
-        )
-    
-    # Método 2: Sin explain_func (para faithfulness, complexity, localization)
-    methods_to_try.append(
-        lambda: metric(
-            model=wrapped_model,
-            x_batch=x_batch_np,
-            y_batch=y_batch_np,
-            a_batch=a_batch_np,
-            device=device,
-        )
-    )
-    methods_to_try.append(
-        lambda: metric(
-            model=model,
-            x_batch=x_batch_np,
-            y_batch=y_batch_np,
-            a_batch=a_batch_np,
-            device=device,
-        )
-    )
-    
-    last_error = None
-    for method in methods_to_try:
-        try:
-            scores = method()
-            # Aplanar scores si es necesario (para localization que puede devolver arrays anidados)
-            if isinstance(scores, np.ndarray) and scores.ndim > 1:
-                scores = scores.flatten()
-            return float(np.nanmean(scores)), float(np.nanstd(scores)), scores
-        except Exception as e:
-            last_error = e
-            continue
-    
-    # Si todos fallan, lanzar el último error
-    raise last_error
-
-
-def build_explain_func(explainer: XAIExplainer, method: str, device: torch.device):
-    """Construye una función explain_func compatible con Quantus."""
-    # Cache para evitar regenerar atribuciones si se llama con los mismos inputs
-    _cache = {}
-    
-    def explain_func(model, inputs, targets, **kwargs):
-        """
-        Función de explicación para Quantus.
-        inputs: np.ndarray en formato BHWC o BCHW
-        targets: np.ndarray con las clases objetivo
-        """
-        # Crear una clave de cache basada en los inputs
-        cache_key = (id(inputs), id(targets))
-        if cache_key in _cache:
-            return _cache[cache_key]
-        
-        # Convertir inputs a tensor si es necesario
-        if isinstance(inputs, np.ndarray):
-            if inputs.ndim == 4 and inputs.shape[-1] in (1, 3):
-                # Está en BHWC, convertir a BCHW
-                inputs = np.transpose(inputs, (0, 3, 1, 2))
-            inputs_tensor = torch.tensor(inputs, dtype=torch.float32).to(device)
-        else:
-            inputs_tensor = inputs.to(device)
-        
-        # Convertir targets a tensor si es necesario
-        if isinstance(targets, np.ndarray):
-            targets_tensor = torch.tensor(targets, dtype=torch.long).to(device)
-        else:
-            targets_tensor = targets.to(device)
-        
-        # Generar atribuciones para el batch
-        attributions = []
-        for idx in range(len(inputs_tensor)):
-            sample = inputs_tensor[idx:idx+1]
-            target_class = int(targets_tensor[idx].item())
-            try:
-                if method == "gradcam":
-                    result = explainer.generate_gradcam(sample, target_class, save_path=None)
-                    if result is None:
-                        raise RuntimeError("Grad-CAM retornó None")
-                    _, heatmap = result
-                    attr = expand_heatmap_to_channels(heatmap, sample.shape[1])
-                elif method == "gradcampp":
-                    result = explainer.generate_gradcampp(sample, target_class, save_path=None)
-                    if result is None:
-                        raise RuntimeError("Grad-CAM++ retornó None")
-                    _, heatmap = result
-                    attr = expand_heatmap_to_channels(heatmap, sample.shape[1])
-                elif method == "integrated_gradients":
-                    result = explainer.generate_integrated_gradients(sample, target_class, save_path=None)
-                    if result is None:
-                        raise RuntimeError("IG retornó None")
-                    attr = result[1][0].detach().cpu()
-                elif method == "saliency":
-                    result = explainer.generate_saliency_map(sample, target_class, save_path=None)
-                    if result is None:
-                        raise RuntimeError("Saliency retornó None")
-                    attr = result[1][0].detach().cpu()
-                else:
-                    raise ValueError(f"Método desconocido: {method}")
-            except Exception:
-                # Si falla, usar ceros
-                attr = torch.zeros_like(sample[0].cpu())
-            attributions.append(attr)
-        
-        attr_batch = torch.stack(attributions, dim=0)
-        # Convertir a numpy en formato BCHW
-        result_np = attr_batch.detach().cpu().numpy()
-        _cache[cache_key] = result_np
-        return result_np
-    
-    return explain_func
-
-
-def evaluate_methods(model, explainer, x_batch, y_batch, methods, args):
-    device = next(model.parameters()).device
-    model.eval()  # Asegurar que el modelo está en modo evaluación
-    results: Dict[str, Dict[str, Dict[str, float]]] = {}
-    
-    # Crear un wrapper explícito del modelo para Quantus
-    # Esto asegura que Quantus reconozca correctamente el tipo
-    wrapped_model = ModelWrapper(model).to(device)
-    wrapped_model.eval()
-
-    # Convertimos a numpy - mantener en BCHW para Quantus
-    # Quantus con modelos PyTorch espera BCHW internamente
-    x_batch_np = x_batch.detach().cpu().numpy()  # Ya está en BCHW (30, 3, 224, 224)
-    y_batch_np = y_batch.detach().cpu().numpy()
-
-    with torch.no_grad():
-        logits = model(x_batch)
-        preds = logits.argmax(dim=1)
-
-    # Usar MPRT en lugar de ModelParameterRandomisation (deprecated)
+    # Aleatorización (MPRT o ModelParameterRandomisation)
     try:
         RandomizationMetric = quantus.MPRT
     except AttributeError:
         RandomizationMetric = quantus.ModelParameterRandomisation
-    
-    # Inicializar métricas con parámetros compatibles
-    # Usamos try/except para manejar diferentes versiones de Quantus
-    # Nota: abs=True porque el warning indica que se debe aplicar operación absoluta
-    metrics = {}
-    
-    # FaithfulnessCorrelation
-    try:
-        metrics["faithfulness"] = quantus.FaithfulnessCorrelation(
-            abs=True,
-            normalise=False,
-        )
-    except Exception:
-        # Si falla, intentar sin parámetros
-        metrics["faithfulness"] = quantus.FaithfulnessCorrelation()
-    
-    # AvgSensitivity
-    try:
-        metrics["robustness"] = quantus.AvgSensitivity(
-            abs=True,
-            normalise=False,
-        )
-    except Exception:
-        metrics["robustness"] = quantus.AvgSensitivity()
-    
-    # Complexity (puede llamarse Entropy o Complexity según la versión)
-    try:
-        metrics["complexity"] = quantus.Complexity(
-            abs=True,
-            normalise=False,
-        )
-    except AttributeError:
-        try:
-            # Intentar con Entropy si Complexity no existe
-            metrics["complexity"] = quantus.Entropy(
-                abs=True,
-                normalise=False,
-            )
-        except AttributeError:
-            # Si tampoco existe Entropy, intentar sin parámetros
-            try:
-                metrics["complexity"] = quantus.Complexity()
-            except AttributeError:
-                metrics["complexity"] = quantus.Entropy()
-    except Exception:
-        # Si falla por otros motivos, intentar sin parámetros
-        try:
-            metrics["complexity"] = quantus.Complexity()
-        except AttributeError:
-            metrics["complexity"] = quantus.Entropy()
-    
-    # Randomization - se inicializará más tarde con explain_func
-    # No lo inicializamos aquí porque necesita explain_func
-    metrics["randomization"] = None  # Se inicializará dinámicamente
-    
-    # RegionPerturbation
-    try:
-        metrics["localization"] = quantus.RegionPerturbation(
-            abs=True,
-            normalise=False,
-        )
-    except Exception:
-        metrics["localization"] = quantus.RegionPerturbation()
+    metrics["randomization"] = RandomizationMetric()
+
+    # Localización
+    metrics["localization"] = quantus.RegionPerturbation()
+
+    return metrics
+
+# Evalúa cada método XAI con varias métricas de Quantus.
+# Devuelve un diccionario: results[method][metric] = {mean, std, scores}.
+def evaluate_methods(
+    model: torch.nn.Module,
+    explainer: XAIExplainer,
+    x_batch: torch.Tensor,
+    y_batch: torch.Tensor,
+    methods: list[str],
+    device: torch.device,
+) -> Dict[str, Dict[str, Dict[str, float]]]:
+    """
+    Evalúa cada método XAI con varias métricas de Quantus.
+    Devuelve un diccionario: results[method][metric] = {mean, std, scores}.
+    """
+    model.eval()
+    metrics = create_metrics()
+
+    # Predicciones del modelo (para usar como clases objetivo)
+    with torch.no_grad():
+        logits = model(x_batch.to(device))
+        preds = logits.argmax(dim=1)
+
+    # Convertir datos a BHWC para Quantus
+    x_bhwc = to_bhwc(x_batch)  # (B, H, W, C)
+    y_np = y_batch.detach().cpu().numpy()
+
+    results: Dict[str, Dict[str, Dict[str, float]]] = {}
 
     for method in methods:
-        print(f"\n=== Evaluando {method} ===")
-        try:
-            attr_batch = compute_attributions(explainer, x_batch, preds, method)
-        except ValueError as err:
-            print(f"⚠️ {err}. Saltando método.")
-            continue
+        print(f"\n=== Evaluando método XAI: {method} ===")
 
-        # Mantener atribuciones en BCHW (mismo formato que x_batch_np)
-        a_batch_np = attr_batch.detach().cpu().numpy()  # Ya está en BCHW (30, 3, 224, 224)
-        
-        # Verificar que las formas coincidan
-        if a_batch_np.shape != x_batch_np.shape:
-            print(f"⚠️ ERROR: Formas no coinciden - x_batch: {x_batch_np.shape}, a_batch: {a_batch_np.shape}")
-            continue
-        
-        # Crear explain_func para métricas que la requieren
-        explain_fn = build_explain_func(explainer, method, device)
-        
-        method_results = {}
+        # 1) Atribuciones BCHW -> BHWC
+        attr_bchw = compute_attributions(explainer, x_batch, preds, method)
+        attr_bhwc = to_bhwc(attr_bchw)  # (B, H, W, C)
+
+        method_results: Dict[str, Dict[str, float]] = {}
 
         for metric_name, metric in metrics.items():
-            # Saltar métricas lentas si se solicita
-            if hasattr(args, 'skip_slow_metrics') and args.skip_slow_metrics and metric_name in ["robustness", "randomization"]:
-                print(f" -> {metric_name} (saltada - usar sin --skip_slow_metrics para incluirla)")
-                method_results[metric_name] = None
-                continue
-            
-            print(f" -> {metric_name}", end="", flush=True)
+            print(f" -> Métrica: {metric_name}")
             try:
-                # Randomization - esta versión de Quantus no soporta explain_func en inicialización
-                # Intentar pasarlo como parámetro en la llamada
-                if metric_name == "randomization":
-                    print(" (puede tardar varios minutos...)")
-                    # Verificar que explain_fn sea callable
-                    if not callable(explain_fn):
-                        print(f"    ⚠️ explain_func no es callable. Saltando randomization.")
-                        method_results[metric_name] = None
-                        continue
-                    
-                    # Inicializar la métrica sin explain_func (esta versión no lo acepta)
-                    try:
-                        randomization_metric = RandomizationMetric(
-                            abs=True,
-                            normalise=False,
-                        )
-                    except Exception:
-                        randomization_metric = RandomizationMetric()
-                    
-                    # Intentar pasar explain_func como parámetro en la llamada
-                    try:
-                        mean, std, scores = evaluate_metric(
-                            randomization_metric, model, wrapped_model, x_batch_np, y_batch_np, a_batch_np, device, explain_func=explain_fn
-                        )
-                    except Exception as e:
-                        # Si falla, intentar sin explain_func
-                        print(f"    ⚠️ Error con explain_func: {e}")
-                        print(f"    ⚠️ Intentando sin explain_func...")
-                        try:
-                            mean, std, scores = evaluate_metric(
-                                randomization_metric, model, wrapped_model, x_batch_np, y_batch_np, a_batch_np, device
-                            )
-                        except Exception as e2:
-                            print(f"    ⚠️ Randomization no compatible con esta versión de Quantus: {e2}")
-                            method_results[metric_name] = None
-                            continue
-                # Robustness puede usar explain_func como parámetro
-                elif metric_name == "robustness":
-                    print(" (puede tardar varios minutos...)")
-                    mean, std, scores = evaluate_metric(
-                        metric, model, wrapped_model, x_batch_np, y_batch_np, a_batch_np, device, explain_func=explain_fn
-                    )
-                else:
-                    mean, std, scores = evaluate_metric(
-                        metric, model, wrapped_model, x_batch_np, y_batch_np, a_batch_np, device
-                    )
-                
-                # Convertir scores a lista de floats de forma segura
-                # Aplanar scores primero si es necesario
-                if isinstance(scores, np.ndarray):
-                    scores_flat = scores.flatten()
-                else:
-                    scores_flat = scores
-                
-                scores_list = []
-                for s in scores_flat:
-                    if isinstance(s, (np.ndarray, np.generic)):
-                        if s.size == 1:
-                            scores_list.append(float(s))
-                        else:
-                            # Si es un array, tomar el primer elemento o la media
-                            scores_list.append(float(np.mean(s)))
-                    else:
-                        scores_list.append(float(s))
-                
+                # Llamada directa a Quantus (asume x_batch y a_batch en BHWC)
+                scores = metric(
+                    model=model,
+                    x_batch=x_bhwc,
+                    y_batch=y_np,
+                    a_batch=attr_bhwc,
+                    device=device,
+                )
+
+                scores = np.array(scores, dtype=float).flatten()
+                mean = float(np.nanmean(scores))
+                std = float(np.nanstd(scores))
+
                 method_results[metric_name] = {
                     "mean": mean,
                     "std": std,
-                    "scores": scores_list,
+                    "scores": scores.tolist(),
                 }
                 print(f"    {mean:.4f} ± {std:.4f}")
-            except Exception as err:  # noqa: BLE001
-                print(f"    ⚠️ Error en {metric_name}: {err}")
-                traceback.print_exc()
+            except Exception as err:
+                print(f"    ⚠️ Error evaluando {metric_name} para {method}: {err}")
                 method_results[metric_name] = None
 
         results[method] = method_results
 
     return results
 
-
-def save_results(results: Dict, output_path: str):
+# Guarda los resultados en un archivo JSON.
+def save_results(results: Dict, output_path: str) -> None:
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as file:
         json.dump(results, file, indent=2, ensure_ascii=False)
@@ -574,19 +291,22 @@ def save_results(results: Dict, output_path: str):
 #  main()
 # ============================================================
 
-def main():
+# Función principal
+def main() -> None:
     args = parse_args()
     device = torch.device(args.device)
 
     print("=" * 60)
-    print("  EVALUACIÓN QUANTUS - RESNET18 XAI")
+    print("  EVALUACIÓN QUANTUS - RESNET18 XAI (simplificada)")
     print("=" * 60)
     print(f"Dispositivo: {device}")
     print(f"Métodos: {args.methods}")
     print(f"Muestras a evaluar: {args.num_samples}")
 
+    # Modelo entrenado
     model = load_trained_model(args.model_path, device)
 
+    # Datos de test
     datasets = load_datasets(args.data_dir, target_size=224)
     _, _, test_loader = create_data_loaders_fixed(
         datasets=datasets,
@@ -595,13 +315,29 @@ def main():
         seed=42,
     )
 
-    explainer = XAIExplainer(model, device, num_classes=15)
+    # Muestreo de ejemplos de test
     x_batch, y_batch = collect_samples(test_loader, args.num_samples, device)
 
-    results = evaluate_methods(model, explainer, x_batch, y_batch, args.methods, args)
+    # Explainer XAI (reutiliza la misma lógica que xai_explanations.py)
+    explainer = XAIExplainer(model, device, num_classes=15)
+
+    # Evaluación
+    results = evaluate_methods(model, explainer, x_batch, y_batch, args.methods, device)
     save_results(results, args.output)
 
 
 if __name__ == "__main__":
     main()
 
+"""
+Resumen
+El script quantus_evaluation.py evalúa la explicabilidad de un modelo entrenado con varios métodos XAI (Grad-CAM, Grad-CAM++, Integrated Gradients y Saliency) usando las métricas de Quantus.
+1. Argumentos: lee los parámetros de línea de comandos.
+2. Datos: carga los datasets MedMNIST y crea un loader de test.
+3. Muestreo: recoge un batch de muestras del conjunto de test.
+4. Explainer: inicializa el objeto XAIExplainer.
+5. Evaluación: llama a evaluate_methods() para cada método XAI.
+6. Guarda: guarda los resultados en un archivo JSON.
+
+Resultado: un archivo JSON con los resultados de la evaluación cuantitativa de la explicabilidad.
+"""
