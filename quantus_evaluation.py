@@ -110,12 +110,9 @@ def collect_samples(test_loader, num_samples: int, device: torch.device) -> tupl
     return x_batch, y_batch
 
 # Convierte un tensor BCHW a BHWC para Quantus.
-def to_bhwc(tensor_batch: torch.Tensor) -> np.ndarray:
-    """Convierte lote BCHW -> BHWC (formato común en Quantus)."""
-    np_batch = tensor_batch.detach().cpu().numpy()  # (B, C, H, W)
-    if np_batch.ndim == 4:
-        np_batch = np.transpose(np_batch, (0, 2, 3, 1))  # BCHW -> BHWC
-    return np_batch
+def to_numpy_bchw(tensor_batch: torch.Tensor) -> np.ndarray:
+    """Convierte un tensor BCHW a NumPy BCHW (sin cambiar el orden de ejes)."""
+    return tensor_batch.detach().cpu().numpy()
 
 
 # ============================================================
@@ -234,8 +231,8 @@ def evaluate_methods(
         logits = model(x_batch.to(device))
         preds = logits.argmax(dim=1)
 
-    # Convertir datos a BHWC para Quantus
-    x_bhwc = to_bhwc(x_batch)  # (B, H, W, C)
+    # Convertir datos a NumPy (manteniendo BCHW)
+    x_np = to_numpy_bchw(x_batch)  # (B, C, H, W)
     y_np = y_batch.detach().cpu().numpy()
 
     results: Dict[str, Dict[str, Dict[str, float]]] = {}
@@ -243,21 +240,21 @@ def evaluate_methods(
     for method in methods:
         print(f"\n=== Evaluando método XAI: {method} ===")
 
-        # 1) Atribuciones BCHW -> BHWC
+        # 1) Atribuciones (mantenemos BCHW para coincidir con x_np)
         attr_bchw = compute_attributions(explainer, x_batch, preds, method)
-        attr_bhwc = to_bhwc(attr_bchw)  # (B, H, W, C)
+        attr_np = to_numpy_bchw(attr_bchw)  # (B, C, H, W)
 
         method_results: Dict[str, Dict[str, float]] = {}
 
         for metric_name, metric in metrics.items():
             print(f" -> Métrica: {metric_name}")
             try:
-                # Llamada directa a Quantus (asume x_batch y a_batch en BHWC)
+                # Llamada directa a Quantus (x_batch y a_batch en BCHW, mismo layout)
                 scores = metric(
                     model=model,
-                    x_batch=x_bhwc,
+                    x_batch=x_np,
                     y_batch=y_np,
-                    a_batch=attr_bhwc,
+                    a_batch=attr_np,
                     device=device,
                 )
 
