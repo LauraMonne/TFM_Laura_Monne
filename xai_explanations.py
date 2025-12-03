@@ -619,7 +619,7 @@ def main():
     )
 
     # ----- Evaluación cuantitativa (stub) -----
-    evaluate_with_quantus_stub()
+    evaluate_with_quantus()
 
     print("\n" + "=" * 60)
     print("EXPLICABILIDAD COMPLETADA")
