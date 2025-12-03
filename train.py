@@ -1,13 +1,18 @@
 """
-Entrenamiento ResNet-18 con MedMNIST (mejorado)
-Mejoras clave:
-- AMP (mixed precision)
-- Validación cada época
-- Gradient clipping (con AMP)
-- SOLO class weights (sin WeightedRandomSampler para no sobre-corregir)
-- Siempre evalúa el mejor checkpoint (best_model.pth)
+Entrenamiento ResNet-18 con MedMNIST (mejorado).
+
+Ahora soporta entrenamiento **por dataset**:
+- `python train.py --dataset blood`   → BloodMNIST (8 clases)
+- `python train.py --dataset retina`  → RetinaMNIST (5 clases)
+- `python train.py --dataset breast`  → BreastMNIST (2 clases)
+
+Guarda checkpoints separados:
+- `results/best_model_blood.pth`
+- `results/best_model_retina.pth`
+- `results/best_model_breast.pth`
 """
 
+import argparse
 import os
 import time
 import json
@@ -26,7 +31,7 @@ import seaborn as sns
 from tqdm import tqdm
 
 # Propios
-from prepare_data import load_datasets, create_combined_dataset
+from prepare_data import load_datasets, create_combined_dataset, get_dataset_info
 from resnet18 import create_model, set_seed
 
 # AMP
@@ -248,8 +253,17 @@ class Trainer:
 
         self._plot_confusion_matrix(all_targets, all_preds)
 
+        # Sufijo por dataset (para no pisar ficheros entre modelos)
+        suffix = ""
+        if "dataset_name" in self.config and self.config["dataset_name"] != "combined":
+            suffix = f"_{self.config['dataset_name']}"
+
         os.makedirs("results", exist_ok=True)
-        np.savez("results/preds_test.npz", y_true=np.array(all_targets), y_pred=np.array(all_preds))
+        np.savez(
+            f"results/preds_test{suffix}.npz",
+            y_true=np.array(all_targets),
+            y_pred=np.array(all_preds),
+        )
 
         return {'test_loss': test_loss, 'test_acc': test_acc}
 # Genera y guarda la matriz de confusión.
@@ -257,11 +271,16 @@ class Trainer:
         os.makedirs("results", exist_ok=True)
         cm = confusion_matrix(y_true, y_pred)
         plt.figure(figsize=(10, 8))
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
-        plt.title('Matriz de Confusión (Test)')
-        plt.xlabel('Predicción'); plt.ylabel('Verdadero')
+        sns.heatmap(cm, annot=True, fmt="d", cmap="Blues")
+        plt.title("Matriz de Confusión (Test)")
+        plt.xlabel("Predicción")
+        plt.ylabel("Verdadero")
         plt.tight_layout()
-        plt.savefig('results/confusion_matrix.png', dpi=150, bbox_inches='tight')
+
+        suffix = ""
+        if "dataset_name" in self.config and self.config["dataset_name"] != "combined":
+            suffix = f"_{self.config['dataset_name']}"
+        plt.savefig(f"results/confusion_matrix{suffix}.png", dpi=150, bbox_inches="tight")
         plt.close()
 # Guarda checkpoint con estado del modelo, optimizador, configuración y historial.
     def save_model(self, filename):
@@ -276,111 +295,220 @@ class Trainer:
     def plot_history(self):
         os.makedirs("results", exist_ok=True)
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
-        ax1.plot(self.history['train_loss'], label='Entrenamiento')
-        ax1.plot(self.history['val_loss'], label='Validación')
-        ax1.set_title('Pérdida por Época'); ax1.legend(); ax1.grid(True)
-        ax2.plot(self.history['train_acc'], label='Entrenamiento')
-        ax2.plot(self.history['val_acc'], label='Validación')
-        ax2.set_title('Precisión por Época'); ax2.legend(); ax2.grid(True)
+        ax1.plot(self.history["train_loss"], label="Entrenamiento")
+        ax1.plot(self.history["val_loss"], label="Validación")
+        ax1.set_title("Pérdida por Época")
+        ax1.legend()
+        ax1.grid(True)
+        ax2.plot(self.history["train_acc"], label="Entrenamiento")
+        ax2.plot(self.history["val_acc"], label="Validación")
+        ax2.set_title("Precisión por Época")
+        ax2.legend()
+        ax2.grid(True)
         plt.tight_layout()
-        plt.savefig('results/training_history.png', dpi=150, bbox_inches='tight')
+
+        suffix = ""
+        if "dataset_name" in self.config and self.config["dataset_name"] != "combined":
+            suffix = f"_{self.config['dataset_name']}"
+        plt.savefig(f"results/training_history{suffix}.png", dpi=150, bbox_inches="tight")
         plt.close()
 
-# ----------------------------- DataLoaders -----------------------------
-# Crea los DataLoaders para el entrenamiento, validación y test.
-# Devuelve los DataLoaders para el entrenamiento, validación y test y los pesos de clase.   
-def create_data_loaders(datasets, batch_size=64, num_workers=4, num_classes=15):
+"""
+DataLoaders para entrenamiento/validación/test.
+Permiten entrenar:
+- Un modelo combinado (15 clases)    → dataset_name='combined'
+- Un modelo por dataset específico   → dataset_name in {'blood','retina','breast'}
+"""
+
+
+def create_data_loaders(
+    datasets,
+    batch_size: int = 64,
+    num_workers: int = 4,
+    num_classes: int = 15,
+    dataset_name: str = "combined",
+):
     """
-    Crea los datasets combinados y DataLoaders.
-    (Sin sampler ponderado: usamos únicamente class weights en la loss)
+    Crea los DataLoaders para entrenamiento/validación/test.
+
+    - Si dataset_name == 'combined': mezcla Blood+Retina+Breast (15 clases, con offsets).
+    - Si dataset_name == 'blood'   : solo BloodMNIST  (8 clases).
+    - Si dataset_name == 'retina'  : solo RetinaMNIST (5 clases).
+    - Si dataset_name == 'breast'  : solo BreastMNIST (2 clases).
     """
     persistent = num_workers > 0
 
-    train_dataset = create_combined_dataset(datasets, split='train')
-    val_dataset   = create_combined_dataset(datasets, split='val')
-    test_dataset  = create_combined_dataset(datasets, split='test')
+    if dataset_name == "combined":
+        train_dataset = create_combined_dataset(datasets, split="train")
+        val_dataset = create_combined_dataset(datasets, split="val")
+        test_dataset = create_combined_dataset(datasets, split="test")
+    else:
+        name_map = {
+            "blood": "bloodmnist",
+            "retina": "retinamnist",
+            "breast": "breastmnist",
+        }
+        if dataset_name not in name_map:
+            raise ValueError(f"Dataset desconocido: {dataset_name}")
+        med_name = name_map[dataset_name]
+        if med_name not in datasets:
+            raise KeyError(f"'{med_name}' no está cargado en datasets.")
+
+        # Usamos create_combined_dataset pero pasando solo un dataset
+        sub = {med_name: datasets[med_name]}
+        train_dataset = create_combined_dataset(sub, split="train", apply_offsets=False)
+        val_dataset = create_combined_dataset(sub, split="val", apply_offsets=False)
+        test_dataset = create_combined_dataset(sub, split="test", apply_offsets=False)
 
     # Pesos de clase para la loss
     class_weights_vec, counts = compute_class_weights(train_dataset, num_classes=num_classes)
     print("Distribución de clases en train:", counts.tolist())
-    print("Pesos de clase (inv. freq normalizados):", [float(f"{w:.4f}") for w in class_weights_vec])
+    print(
+        "Pesos de clase (inv. freq normalizados):",
+        [float(f"{w:.4f}") for w in class_weights_vec],
+    )
 
     train_loader = DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True,
-        num_workers=num_workers, pin_memory=True, prefetch_factor=2,
-        persistent_workers=persistent
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=True,
+        prefetch_factor=2,
+        persistent_workers=persistent,
     )
     val_loader = DataLoader(
-        val_dataset, batch_size=batch_size, shuffle=False,
-        num_workers=num_workers, pin_memory=True, prefetch_factor=2,
-        persistent_workers=persistent
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
+        prefetch_factor=2,
+        persistent_workers=persistent,
     )
     test_loader = DataLoader(
-        test_dataset, batch_size=batch_size, shuffle=False,
-        num_workers=num_workers, pin_memory=True, prefetch_factor=2,
-        persistent_workers=persistent
+        test_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
+        prefetch_factor=2,
+        persistent_workers=persistent,
     )
 
     return train_loader, val_loader, test_loader, class_weights_vec
 
+
 # ----------------------------- MAIN -----------------------------
-# Define configuración: batch, épocas, learning rate, weight decay, early stopping, workers, pesos de clase, gradient clipping y número de clases.
-# Inicializa la semilla y configura el dispositivo.
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Entrenamiento ResNet-18 en MedMNIST (por dataset o combinado)."
+    )
+    parser.add_argument(
+        "--dataset",
+        default="combined",
+        choices=["combined", "blood", "retina", "breast"],
+        help="Qué dataset entrenar: combined (15 clases), blood, retina o breast.",
+    )
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
     set_seed(42)
-    config = {
-        'batch_size': 64,
-        'epochs': 120,
-        'learning_rate': 1e-3,
-        'weight_decay': 1e-4,
-        'early_stopping_patience': 12,
-        'num_workers': 4,
-        'use_class_weights': True,
-        'grad_clip_norm': 1.0,
-        'num_classes': 15
+
+    # Mapa dataset -> nombre interno MedMNIST
+    name_map = {
+        "combined": "combined",
+        "blood": "bloodmnist",
+        "retina": "retinamnist",
+        "breast": "breastmnist",
     }
-# Imprime la configuración.
+
+    meta_all = get_dataset_info()
+    if args.dataset == "combined":
+        # 8 + 5 + 2
+        num_classes = (
+            meta_all["bloodmnist"]["n_classes"]
+            + meta_all["retinamnist"]["n_classes"]
+            + meta_all["breastmnist"]["n_classes"]
+        )
+    else:
+        med_name = name_map[args.dataset]
+        num_classes = int(meta_all[med_name]["n_classes"])
+
+    suffix = "" if args.dataset == "combined" else f"_{args.dataset}"
+    best_model_path = f"results/best_model{suffix}.pth"
+    training_results_path = f"results/training_results{suffix}.json"
+
+    config = {
+        "batch_size": 64,
+        "epochs": 120,
+        "learning_rate": 1e-3,
+        "weight_decay": 1e-4,
+        "early_stopping_patience": 12,
+        "num_workers": 4,
+        "use_class_weights": True,
+        "grad_clip_norm": 1.0,
+        "num_classes": num_classes,
+        "dataset_name": args.dataset,
+        "best_model_path": best_model_path,
+    }
+
     print("=== ENTRENAMIENTO RESNET-18 (AMP, val/época, class weights, grad clip) ===")
+    print("Dataset:", args.dataset, f"({num_classes} clases)")
     print(json.dumps(config, indent=2))
-# Verifica si hay GPU disponible.
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Dispositivo: {device}")
-    if device.type == 'cuda':
+    if device.type == "cuda":
         print(f"GPU: {torch.cuda.get_device_name(0)}")
-# Carga los datasets.
-    datasets = load_datasets('./data', target_size=224)
-# Crea los DataLoaders para el entrenamiento, validación y test.
+
+    # Cargar datasets (siempre los tres; el filtrado se hace en create_data_loaders)
+    datasets = load_datasets("./data", target_size=224)
+
+    # DataLoaders según el dataset elegido
     train_loader, val_loader, test_loader, class_weights_vec = create_data_loaders(
         datasets,
-        batch_size=config['batch_size'],
-        num_workers=config['num_workers'],
-        num_classes=config['num_classes']
+        batch_size=config["batch_size"],
+        num_workers=config["num_workers"],
+        num_classes=config["num_classes"],
+        dataset_name=args.dataset,
     )
-# Crea el modelo ResNet-18 con 15 clases.
-    model = create_model(num_classes=config['num_classes'])
-# Crea el entrenador con el modelo, DataLoaders, dispositivo, configuración y pesos de clase (opcional).
+
+    # Modelo con el número de clases correcto
+    model = create_model(num_classes=config["num_classes"])
+
     trainer = Trainer(
-        model, train_loader, val_loader, test_loader, device, config,
-        class_weights=class_weights_vec if config['use_class_weights'] else None
+        model,
+        train_loader,
+        val_loader,
+        test_loader,
+        device,
+        config,
+        class_weights=class_weights_vec if config["use_class_weights"] else None,
     )
-# Entrena el modelo.
+
     history = trainer.train()
 
     # Cargar SIEMPRE el mejor checkpoint antes de evaluar.
-    best_ckpt = torch.load('results/best_model.pth', map_location=device)
-    trainer.model.load_state_dict(best_ckpt['model_state_dict'])
-# Evalúa el modelo.
+    best_ckpt = torch.load(best_model_path, map_location=device)
+    trainer.model.load_state_dict(best_ckpt["model_state_dict"])
+
     results = trainer.evaluate()
     trainer.plot_history()
-# Guarda los resultados en un archivo JSON. 
-    os.makedirs('results', exist_ok=True)
-    with open('results/training_results.json', 'w') as f:
-        json.dump({'config': config, 'history': history, 'results': results}, f, indent=2)
+
+    os.makedirs("results", exist_ok=True)
+    with open(training_results_path, "w") as f:
+        json.dump({"config": config, "history": history, "results": results}, f, indent=2)
 
     print("\n=== ENTRENAMIENTO COMPLETADO ===")
     print(f"Precisión final en test: {results['test_acc']:.2f}%")
     print("Resultados guardados en carpeta 'results/'")
-# Ejecuta la función principal cuando se ejecuta el script directamente.
+
+
 if __name__ == "__main__":
     main()
 """
