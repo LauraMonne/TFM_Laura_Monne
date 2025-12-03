@@ -370,32 +370,32 @@ def create_data_loaders(
         [float(f"{w:.4f}") for w in class_weights_vec],
     )
 
+    # Configurar parámetros del DataLoader según num_workers
+    loader_kwargs = {
+        "batch_size": batch_size,
+        "num_workers": num_workers,
+        "pin_memory": True,
+    }
+    
+    # prefetch_factor y persistent_workers solo se pueden usar cuando num_workers > 0
+    if num_workers > 0:
+        loader_kwargs["prefetch_factor"] = 2
+        loader_kwargs["persistent_workers"] = persistent
+    
     train_loader = DataLoader(
         train_dataset,
-        batch_size=batch_size,
         shuffle=True,
-        num_workers=num_workers,
-        pin_memory=True,
-        prefetch_factor=2,
-        persistent_workers=persistent,
+        **loader_kwargs,
     )
     val_loader = DataLoader(
         val_dataset,
-        batch_size=batch_size,
         shuffle=False,
-        num_workers=num_workers,
-        pin_memory=True,
-        prefetch_factor=2,
-        persistent_workers=persistent,
+        **loader_kwargs,
     )
     test_loader = DataLoader(
         test_dataset,
-        batch_size=batch_size,
         shuffle=False,
-        num_workers=num_workers,
-        pin_memory=True,
-        prefetch_factor=2,
-        persistent_workers=persistent,
+        **loader_kwargs,
     )
 
     return train_loader, val_loader, test_loader, class_weights_vec
