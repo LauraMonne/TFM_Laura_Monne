@@ -500,7 +500,7 @@ def main():
     print(f"Modelo: {model_path}")
 
     # Nº máximo de explicaciones por dataset (límite alto para datasets individuales)
-    total_max = 1000
+    total_max = 500
     if args.dataset == "blood":
         max_blood = total_max
         max_retina = 0
