@@ -51,9 +51,11 @@ except ImportError:
     print("quantus no disponible. Instala con: pip install quantus")
 
 # ====== Módulos propios del repo ======
-from prepare_data import load_datasets
+import argparse
+from prepare_data import load_datasets, get_dataset_info
 from resnet18 import create_model
 from data_utils import create_data_loaders_fixed
+from train import create_data_loaders
 
 
 # ============================================================
@@ -442,9 +444,33 @@ def evaluate_with_quantus():
 
 
 # ============================================================
+#  parse_args()
+# ============================================================
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Genera explicaciones XAI para ResNet-18 en MedMNIST (por dataset individual)."
+    )
+    parser.add_argument(
+        "--dataset",
+        required=True,
+        choices=["blood", "retina", "breast"],
+        help="Dataset a usar: blood (8 clases), retina (5 clases) o breast (2 clases).",
+    )
+    parser.add_argument(
+        "--model_path",
+        type=str,
+        default=None,
+        help="Ruta al checkpoint del modelo. Si no se especifica, se usa results/best_model_{dataset}.pth",
+    )
+    return parser.parse_args()
+
+
+# ============================================================
 #  main()
 # ============================================================
 def main():
+    args = parse_args()
+    
     print("=" * 60)
     print("EXPLICABILIDAD (XAI) - ResNet-18 MedMNIST")
     print("=" * 60)
@@ -452,20 +478,41 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Dispositivo: {device}")
 
-    model_path = "results/best_model.pth"
+    # Determinar número de clases según dataset
+    meta_all = get_dataset_info()
+    name_map = {"blood": "bloodmnist", "retina": "retinamnist", "breast": "breastmnist"}
+    med_name = name_map[args.dataset]
+    num_classes = int(meta_all[med_name]["n_classes"])
+
+    # Determinar ruta del modelo
+    if args.model_path is None:
+        model_path = f"results/best_model_{args.dataset}.pth"
+    else:
+        model_path = args.model_path
+
     if not os.path.exists(model_path):
         raise FileNotFoundError(
             f"No se ha encontrado {model_path}. "
-            f"Ejecuta primero: python train.py"
+            f"Ejecuta primero: python train.py --dataset {args.dataset}"
         )
 
-    num_classes = 15
+    print(f"Dataset: {args.dataset} ({num_classes} clases)")
+    print(f"Modelo: {model_path}")
 
-    # Nº máximo de explicaciones por dataset
-    max_blood = 300
-    max_retina = 150
-    max_breast = 50
-    total_max = max_blood + max_retina + max_breast  # 500
+    # Nº máximo de explicaciones por dataset (límite alto para datasets individuales)
+    total_max = 1000
+    if args.dataset == "blood":
+        max_blood = total_max
+        max_retina = 0
+        max_breast = 0
+    elif args.dataset == "retina":
+        max_blood = 0
+        max_retina = total_max
+        max_breast = 0
+    else:  # breast
+        max_blood = 0
+        max_retina = 0
+        max_breast = total_max
 
     # ----- Cargar modelo entrenado -----
     model = load_trained_model(model_path, device, num_classes=num_classes)
@@ -473,23 +520,36 @@ def main():
     # ----- Cargar datos de test -----
     print("\nCargando datos de test...")
     datasets = load_datasets("./data", target_size=224)
-    _, _, test_loader = create_data_loaders_fixed(
+    
+    # Usar create_data_loaders de train.py para filtrar por dataset
+    _, _, test_loader, _ = create_data_loaders(
         datasets=datasets,
         batch_size=1,
         num_workers=0,
-        seed=42,
+        num_classes=num_classes,
+        dataset_name=args.dataset,
     )
+    
+    # Para datasets individuales, todas las clases están en el rango [0, num_classes)
+    if args.dataset == "blood":
+        BLOOD_RANGE = range(0, num_classes)
+        RETINA_RANGE = range(0)
+        BREAST_RANGE = range(0)
+    elif args.dataset == "retina":
+        BLOOD_RANGE = range(0)
+        RETINA_RANGE = range(0, num_classes)
+        BREAST_RANGE = range(0)
+    else:  # breast
+        BLOOD_RANGE = range(0)
+        RETINA_RANGE = range(0)
+        BREAST_RANGE = range(0, num_classes)
 
     explainer = XAIExplainer(model, device, num_classes=num_classes)
 
-    # ----- Generar explicaciones con muestreo estratificado -----
-    print(f"\nGenerando explicaciones (hasta {total_max} muestras: "
-          f"{max_blood} Blood, {max_retina} Retina, {max_breast} Breast)...")
+    # ----- Generar explicaciones -----
+    print(f"\nGenerando explicaciones para dataset {args.dataset} (hasta {total_max} muestras)...")
+    
     from tqdm import tqdm
-
-    BLOOD_RANGE = range(0, 8)
-    RETINA_RANGE = range(8, 13)
-    BREAST_RANGE = range(13, 15)
 
     count_blood = 0
     count_retina = 0
@@ -501,26 +561,19 @@ def main():
     for data, target in tqdm(test_loader, desc="Generando explicaciones"):
         true_class = int(target.item())
 
-        # Decidir a qué dataset pertenece
-        if true_class in BLOOD_RANGE:
+        # Para datasets individuales, todas las muestras pertenecen al mismo dataset
+        bucket = args.dataset
+        
+        # Verificar límite total según el dataset
+        if args.dataset == "blood":
             if count_blood >= max_blood:
-                continue
-            bucket = "blood"
-        elif true_class in RETINA_RANGE:
+                break
+        elif args.dataset == "retina":
             if count_retina >= max_retina:
-                continue
-            bucket = "retina"
-        elif true_class in BREAST_RANGE:
+                break
+        elif args.dataset == "breast":
             if count_breast >= max_breast:
-                continue
-            bucket = "breast"
-        else:
-            # clase fuera de rango esperado
-            continue
-
-        # Si ya hemos llegado al máximo total, paramos
-        if (count_blood + count_retina + count_breast) >= total_max:
-            break
+                break
 
         data = data.to(device)
 
@@ -558,12 +611,11 @@ def main():
     with open("outputs/explanations_results.json", "w") as f:
         json.dump(all_results, f, indent=2)
 
+    total_count = count_blood + count_retina + count_breast
     print(
         f"\nResumen de muestras explicadas:"
-        f"\n  BLOODMNIST  (0–7)  : {count_blood}"
-        f"\n  RETINAMNIST (8–12) : {count_retina}"
-        f"\n  BREASTMNIST (13–14): {count_breast}"
-        f"\n  TOTAL              : {count_blood + count_retina + count_breast}"
+        f"\n  {args.dataset.upper()}MNIST: {total_count}"
+        f"\n  TOTAL: {total_count}"
     )
 
     # ----- Evaluación cuantitativa (stub) -----
