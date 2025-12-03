@@ -206,7 +206,9 @@ class Trainer:
             if val_loss < self.best_val_loss - 1e-6:
                 self.best_val_loss = val_loss
                 self.best_val_acc = val_acc
-                self.save_model("results/best_model.pth")
+                # Usar best_model_path del config si está disponible, sino usar el nombre por defecto
+                model_path = self.config.get('best_model_path', 'results/best_model.pth')
+                self.save_model(model_path)
                 print(f"✔️ Nuevo mejor modelo (val_loss={val_loss:.4f}, val_acc={val_acc:.2f}%)")
 
             if self.early_stopping(val_loss, self.model):
@@ -494,8 +496,14 @@ def main():
     history = trainer.train()
 
     # Cargar SIEMPRE el mejor checkpoint antes de evaluar.
-    best_ckpt = torch.load(best_model_path, map_location=device)
-    trainer.model.load_state_dict(best_ckpt["model_state_dict"])
+    if not os.path.exists(best_model_path):
+        print(f"⚠️ Advertencia: No se encontró el checkpoint '{best_model_path}'.")
+        print("   Esto puede ocurrir si el entrenamiento no mejoró el modelo inicial.")
+        print("   Se evaluará con el modelo final del entrenamiento.")
+    else:
+        best_ckpt = torch.load(best_model_path, map_location=device)
+        trainer.model.load_state_dict(best_ckpt["model_state_dict"])
+        print(f"✓ Modelo cargado desde '{best_model_path}'")
 
     results = trainer.evaluate()
     trainer.plot_history()
