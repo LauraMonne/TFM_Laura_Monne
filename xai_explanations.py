@@ -608,7 +608,9 @@ def main():
     # ----- Guardar metadatos -----
     print("\nGuardando metadatos de explicabilidad...")
     os.makedirs("outputs", exist_ok=True)
-    with open("outputs/explanations_results.json", "w") as f:
+    # Guardar un JSON por dataset, para no pisar resultados entre blood/retina/breast.
+    json_path = f"outputs/explanations_results_{args.dataset}.json"
+    with open(json_path, "w") as f:
         json.dump(all_results, f, indent=2)
 
     total_count = count_blood + count_retina + count_breast
@@ -616,6 +618,7 @@ def main():
         f"\nResumen de muestras explicadas:"
         f"\n  {args.dataset.upper()}MNIST: {total_count}"
         f"\n  TOTAL: {total_count}"
+        f"\n  JSON:  {json_path}"
     )
 
     # ----- Evaluación cuantitativa (stub) -----
@@ -630,7 +633,8 @@ def main():
     print("  - Integrated Gradients: outputs/integrated_gradients/")
     print("  - Saliency Maps:        outputs/saliency/")
     print("Metadatos:")
-    print("  - outputs/explanations_results.json")
+    print("  - outputs/explanations_results_<dataset>.json "
+          "(por ejemplo outputs/explanations_results_blood.json)")
 
 
 if __name__ == "__main__":
