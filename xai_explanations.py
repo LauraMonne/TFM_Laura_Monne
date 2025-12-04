@@ -61,13 +61,20 @@ from train import create_data_loaders
 # ============================================================
 #  Utilidades de directorios e imagen
 # ============================================================
-# Crea las carpetas de salida si no existen.
-def _ensure_dirs():
-    os.makedirs("outputs", exist_ok=True)
-    os.makedirs("outputs/gradcam", exist_ok=True)
-    os.makedirs("outputs/gradcampp", exist_ok=True)
-    os.makedirs("outputs/integrated_gradients", exist_ok=True)
-    os.makedirs("outputs/saliency", exist_ok=True)
+# Crea las carpetas de salida si no existen, organizadas por dataset.
+def _ensure_dirs(dataset: str):
+    """
+    Crea las carpetas de salida organizadas por dataset.
+    
+    Args:
+        dataset: "blood", "retina" o "breast"
+    """
+    base_dir = f"outputs/{dataset}"
+    os.makedirs(base_dir, exist_ok=True)
+    os.makedirs(f"{base_dir}/gradcam", exist_ok=True)
+    os.makedirs(f"{base_dir}/gradcampp", exist_ok=True)
+    os.makedirs(f"{base_dir}/integrated_gradients", exist_ok=True)
+    os.makedirs(f"{base_dir}/saliency", exist_ok=True)
 
 # Desnormaliza una imagen.
 # Convierte un tensor (1, C, H, W) o (C, H, W) a una imagen numpy (H, W, 3) en rango [0,1].
@@ -107,12 +114,13 @@ def _denormalize_image(
 # Inicializa el modelo, las capas target y los métodos Captum si están disponibles.
 
 class XAIExplainer:
-    def __init__(self, model: nn.Module, device: torch.device, num_classes: int = 15):
+    def __init__(self, model: nn.Module, device: torch.device, num_classes: int = 15, dataset: str = "blood"):
         self.model = model.to(device)
         self.model.eval()
         self.device = device
         self.num_classes = num_classes
-        _ensure_dirs()
+        self.dataset = dataset
+        _ensure_dirs(dataset)
 
         # Métodos Captum
         if CAPTUM_AVAILABLE:
@@ -361,9 +369,12 @@ class XAIExplainer:
         """
         results = {}
 
+        # Base path para las imágenes según el dataset
+        base_path = f"outputs/{self.dataset}"
+
         # Grad-CAM
         if GRAD_CAM_AVAILABLE:
-            gradcam_path = f"outputs/gradcam/img_{image_idx}_class_{pred_class}.png"
+            gradcam_path = f"{base_path}/gradcam/img_{image_idx}_class_{pred_class}.png"
             res_gc = self.generate_gradcam(input_tensor, pred_class, gradcam_path)
             results["gradcam"] = (
                 {"path": gradcam_path, "status": "success"} if res_gc is not None
@@ -374,7 +385,7 @@ class XAIExplainer:
 
         # Grad-CAM++
         if GRAD_CAM_AVAILABLE:
-            gradcampp_path = f"outputs/gradcampp/img_{image_idx}_class_{pred_class}.png"
+            gradcampp_path = f"{base_path}/gradcampp/img_{image_idx}_class_{pred_class}.png"
             res_gcpp = self.generate_gradcampp(input_tensor, pred_class, gradcampp_path)
             results["gradcampp"] = (
                 {"path": gradcampp_path, "status": "success"} if res_gcpp is not None
@@ -385,7 +396,7 @@ class XAIExplainer:
 
         # Integrated Gradients
         if self.ig is not None:
-            ig_path = f"outputs/integrated_gradients/img_{image_idx}_class_{pred_class}.png"
+            ig_path = f"{base_path}/integrated_gradients/img_{image_idx}_class_{pred_class}.png"
             res_ig = self.generate_integrated_gradients(input_tensor, pred_class, ig_path)
             results["integrated_gradients"] = (
                 {"path": ig_path, "status": "success"} if res_ig is not None
@@ -396,7 +407,7 @@ class XAIExplainer:
 
         # Saliency
         if self.saliency is not None:
-            sal_path = f"outputs/saliency/img_{image_idx}_class_{pred_class}.png"
+            sal_path = f"{base_path}/saliency/img_{image_idx}_class_{pred_class}.png"
             res_sal = self.generate_saliency_map(input_tensor, pred_class, sal_path)
             results["saliency"] = (
                 {"path": sal_path, "status": "success"} if res_sal is not None
@@ -544,7 +555,7 @@ def main():
         RETINA_RANGE = range(0)
         BREAST_RANGE = range(0, num_classes)
 
-    explainer = XAIExplainer(model, device, num_classes=num_classes)
+    explainer = XAIExplainer(model, device, num_classes=num_classes, dataset=args.dataset)
 
     # ----- Generar explicaciones -----
     print(f"\nGenerando explicaciones para dataset {args.dataset} (hasta {total_max} muestras)...")
@@ -627,14 +638,13 @@ def main():
     print("\n" + "=" * 60)
     print("EXPLICABILIDAD COMPLETADA")
     print("=" * 60)
-    print("Mapas guardados en 'outputs/':")
-    print("  - Grad-CAM:             outputs/gradcam/")
-    print("  - Grad-CAM++:           outputs/gradcampp/")
-    print("  - Integrated Gradients: outputs/integrated_gradients/")
-    print("  - Saliency Maps:        outputs/saliency/")
+    print(f"Mapas guardados en 'outputs/{args.dataset}/':")
+    print(f"  - Grad-CAM:             outputs/{args.dataset}/gradcam/")
+    print(f"  - Grad-CAM++:           outputs/{args.dataset}/gradcampp/")
+    print(f"  - Integrated Gradients: outputs/{args.dataset}/integrated_gradients/")
+    print(f"  - Saliency Maps:        outputs/{args.dataset}/saliency/")
     print("Metadatos:")
-    print("  - outputs/explanations_results_<dataset>.json "
-          "(por ejemplo outputs/explanations_results_blood.json)")
+    print(f"  - outputs/explanations_results_{args.dataset}.json")
 
 
 if __name__ == "__main__":
