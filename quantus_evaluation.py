@@ -30,8 +30,8 @@ except ImportError as exc:
         "quantus no está instalado. Ejecuta: pip install quantus"
     ) from exc
 
-from prepare_data import load_datasets
-from data_utils import create_data_loaders_fixed
+from prepare_data import load_datasets, get_dataset_info
+from train import create_data_loaders
 from xai_explanations import XAIExplainer, load_trained_model
 
 
@@ -43,12 +43,19 @@ from xai_explanations import XAIExplainer, load_trained_model
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Evaluación cuantitativa de XAI con Quantus (versión simplificada)."
+        description="Evaluación cuantitativa de XAI con Quantus (por dataset individual)."
+    )
+    parser.add_argument(
+        "--dataset",
+        required=True,
+        choices=["blood", "retina", "breast"],
+        help="Dataset a evaluar: blood (8 clases), retina (5 clases) o breast (2 clases).",
     )
     parser.add_argument(
         "--model_path",
-        default="results/best_model.pth",
-        help="Ruta al checkpoint entrenado.",
+        type=str,
+        default=None,
+        help="Ruta al checkpoint entrenado. Si no se especifica, usa results/best_model_{dataset}.pth",
     )
     parser.add_argument(
         "--data_dir",
@@ -80,8 +87,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--output",
-        default="outputs/quantus_metrics.json",
-        help="Ruta de guardado para los resultados.",
+        type=str,
+        default=None,
+        help="Ruta de guardado para los resultados. Si no se especifica, usa outputs/quantus_metrics_{dataset}.json",
     )
     return parser.parse_args()
 
@@ -399,33 +407,69 @@ def main() -> None:
     device = torch.device(args.device)
 
     print("=" * 60)
-    print("  EVALUACIÓN QUANTUS - RESNET18 XAI (simplificada)")
+    print("  EVALUACIÓN QUANTUS - RESNET18 XAI")
     print("=" * 60)
+    print(f"Dataset: {args.dataset}")
     print(f"Dispositivo: {device}")
     print(f"Métodos: {args.methods}")
     print(f"Muestras a evaluar: {args.num_samples}")
 
+    # Determinar número de clases según dataset
+    meta_all = get_dataset_info()
+    name_map = {"blood": "bloodmnist", "retina": "retinamnist", "breast": "breastmnist"}
+    med_name = name_map[args.dataset]
+    num_classes = int(meta_all[med_name]["n_classes"])
+
+    # Determinar ruta del modelo
+    if args.model_path is None:
+        model_path = f"results/best_model_{args.dataset}.pth"
+    else:
+        model_path = args.model_path
+
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(
+            f"No se ha encontrado {model_path}. "
+            f"Ejecuta primero: python train.py --dataset {args.dataset}"
+        )
+
     # Modelo entrenado
-    model = load_trained_model(args.model_path, device)
+    model = load_trained_model(model_path, device, num_classes=num_classes)
 
     # Datos de test
     datasets = load_datasets(args.data_dir, target_size=224)
-    _, _, test_loader = create_data_loaders_fixed(
+    _, _, test_loader, _ = create_data_loaders(
         datasets=datasets,
         batch_size=args.batch_size,
         num_workers=0,
-        seed=42,
+        num_classes=num_classes,
+        dataset_name=args.dataset,
     )
 
     # Muestreo de ejemplos de test
     x_batch, y_batch = collect_samples(test_loader, args.num_samples, device)
 
-    # Explainer XAI (reutiliza la misma lógica que xai_explanations.py)
-    explainer = XAIExplainer(model, device, num_classes=15)
+    # Explainer XAI
+    explainer = XAIExplainer(model, device, num_classes=num_classes)
 
     # Evaluación
     results = evaluate_methods(model, explainer, x_batch, y_batch, args.methods, device)
-    save_results(results, args.output)
+    
+    # Añadir metadata al resultado
+    results["metadata"] = {
+        "dataset": args.dataset,
+        "num_classes": num_classes,
+        "num_samples": args.num_samples,
+        "methods": args.methods,
+    }
+    
+    # Determinar ruta de salida
+    if args.output is None:
+        output_path = f"outputs/quantus_metrics_{args.dataset}.json"
+    else:
+        output_path = args.output
+    
+    save_results(results, output_path)
+    print(f"\n✅ Resultados guardados en: {output_path}")
 
 
 if __name__ == "__main__":
