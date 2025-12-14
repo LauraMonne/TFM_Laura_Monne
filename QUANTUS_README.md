@@ -43,7 +43,7 @@ Parámetros principales:
 |------|-------------|---------|
 | `--dataset` | Dataset a evaluar (`blood`, `retina`, `breast`) | Obligatorio |
 | `--model_path` | Ruta al checkpoint del modelo | Obligatorio |
-| `--num_samples` | Nº de imágenes del test utilizadas para generar atribuciones | Obligatorio |
+| `--num_samples` | Nº de imágenes del test utilizadas para generar atribuciones | 30 |
 | `--methods` | Métodos XAI (`gradcam`, `gradcampp`, `integrated_gradients`, `saliency`) | Todos |
 | `--device` | `cuda` o `cpu` | Detectado automáticamente |
 
