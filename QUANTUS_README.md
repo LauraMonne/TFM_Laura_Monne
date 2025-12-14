@@ -1,8 +1,8 @@
-# 📈 Evaluación cuantitativa de la explicabilidad (Quantus)
+# Evaluación cuantitativa de la explicabilidad (Quantus)
 
 Este documento explica cómo ejecutar el script `quantus_evaluation.py` para medir la calidad de las explicaciones (Grad-CAM, Grad-CAM++, Integrated Gradients y Saliency) sobre modelos entrenados de manera independiente por dataset.
 
-## ✅ Requisitos previos
+## Requisitos previos
 
 1. Haber entrenado el modelo (`python train.py`) y disponer de los checkpoints:
 - results/best_model_blood.pth
@@ -42,7 +42,7 @@ Parámetros principales:
 | Flag | Descripción | Default |
 |------|-------------|---------|
 | `--dataset` | Dataset a evaluar (`blood`, `retina`, `breast`) | Obligatorio |
-| `--model_path | Ruta al checkpoint del modelo | 30 |
+| `--model_path` | Ruta al checkpoint del modelo | Obligatorio |
 | `--num_samples` | Nº de imágenes del test utilizadas para generar atribuciones | Obligatorio |
 | `--methods` | Métodos XAI (`gradcam`, `gradcampp`, `integrated_gradients`, `saliency`) | Todos |
 | `--device` | `cuda` o `cpu` | Detectado automáticamente |
