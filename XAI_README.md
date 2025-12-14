@@ -79,7 +79,7 @@ El número de muestras explicadas se controla para equilibrar:
 
 **Nota importante**: El script `xai_explanations.py` NO ejecuta la evaluación cuantitativa automáticamente. Para ello se ha añadido `quantus_evaluation.py`, descrito en `QUANTUS_README.md`.
 
-### Métricas a Evaluar (en notebook separado)
+### Métricas evaluadas
 
 Para evaluar los mapas generados, puedes usar Quantus en un notebook con las siguientes métricas:
 
@@ -108,19 +108,7 @@ Para evaluar los mapas generados, puedes usar Quantus en un notebook con las sig
    - Determina precisión espacial de la explicación
    - Rango: [0, 1] (mayor es mejor)
 
-### Cómo Evaluar con Quantus
 
-1. Ejecutar este script para generar los mapas: `python xai_explanations.py`
-2. Crear un notebook Jupyter para la evaluación cuantitativa
-3. Cargar los mapas generados desde `outputs/`
-4. Usar la librería Quantus para evaluar cada método según las 5 dimensiones
-
-**Ejemplo de evaluación** (en notebook):
-```python
-import quantus
-# Cargar mapas generados
-# Evaluar con las métricas definidas
-```
 
 ## Estructura de Salida
 
