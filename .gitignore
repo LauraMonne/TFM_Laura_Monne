@@ -32,9 +32,6 @@ MANIFEST
 # =======================================
 
 # ---- PyTorch ----
-*.pt
-*.pth
-*.ckpt
 *.onnx  # Exportaciones de modelos
 
 # ---- TensorBoard ----
@@ -122,17 +119,6 @@ __MACOSX/
 # *.csv
 # *.zip
 # *.tar.gz
-
-# =======================================
-#  DOCUMENTACIÓN Y ARCHIVOS PERSONALES
-# =======================================
-
-# Archivos Word, PDF o de exportación temporal
-~$*.docx
-~$*.xlsx
-*.pdf
-*.docx
-*.pptx
 
 # =======================================
 #  COPIAS DE SEGURIDAD O AUTOGUARDADOS
