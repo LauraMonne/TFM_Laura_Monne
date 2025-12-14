@@ -36,11 +36,11 @@ La capa layer4 se utiliza como capa objetivo para métodos CAM, siguiendo la pr�
 
 ## Datasets Utilizados (MedMNIST v2)
 
-| Dataset | Clases | Canales | Dominio |
-|---------|----------------------|-------------------|---------------|
-| BloodMNIST | 8 | RGB(3) | Hematología |
-| RetinaMNIST | 5 | RGB(3) | Retinopatía diabética |
-| BreastMNIST | 2 | Escala de grises (1) | Ecografía mamaria |
+| Dataset       | Clases | Canales | Dominio                |
+|--------------|--------|---------|------------------------|
+| BloodMNIST   | 8      | RGB (3) | Hematología            |
+| RetinaMNIST  | 5      | RGB (3) | Retinopatía diabética  |
+| BreastMNIST  | 2      | 1 (gris)| Ecografía mamaria      |
 
 Los splits oficiales **train / validation / test** proporcionados por MedMNIST v2 se utilizan sin modificaciones.
 
@@ -66,9 +66,9 @@ cd TFM_Laura_Monne
 pip install -r requirements.txt
 ```
 
-### Uso Rápido
+### Ejecución del pipeline
 
-1. **Preparar los datos**:
+1. **Preparación de los datos**:
 ```bash
 python prepare_data.py
 ```
@@ -165,4 +165,4 @@ Los artefactos generados (modelos, explicaciones, métricas) están completament
 
 Este proyecto está bajo la Licencia MIT. Ver el archivo `LICENSE` para más detalles.
 
-de un trabajo académico sobre clasificación de imágenes médicas usando redes neuronales convolucionales.
+Este repositorio forma parte de un **trabajo académico sobre clasificación de imágenes biomédicas y explicabilidad en Deep Learning**, desarrollado como Trabajo Final de Máster.
