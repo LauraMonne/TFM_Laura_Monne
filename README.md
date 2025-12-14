@@ -4,50 +4,60 @@ Repositorio oficial: [https://github.com/LauraMonne/TFM_Laura_Monne](https://git
 
 Este proyecto implementa una arquitectura **ResNet-18** estándar para clasificación de imágenes médicas usando los datasets **BloodMNIST**, **RetinaMNIST** y **BreastMNIST** del repositorio **MedMNIST**.
 
-## 📋 Descripción del Proyecto
+## Descripción del Proyecto
 
 El proyecto incluye:
-- **Arquitectura ResNet-18**: Implementación estándar de ResNet con bloques residuales
-- **Datasets MedMNIST**: BloodMNIST, RetinaMNIST y BreastMNIST
-- **Data Augmentation**: Transformaciones para mejorar el rendimiento
-- **Entrenamiento Completo**: Scripts de entrenamiento con validación y evaluación
-- **Visualización de resultados**: métricas, gráficas y matriz de confusión.
+- Entrenamiento de **modelos ResNet-18 independientes por dominio biomédico**
+- Clasificación supervisada sobre datasets MedMNIST
+- Generación de explicaciones post-hoc mediante métodos XAI:
+  - Grad-CAM
+  - Grad-CAM++
+  - Integrated Gradients
+  - Saliency Maps
+- Evaluación cuantitativa de la explicabilidad con la librería **Quantus**
+- Análisis cualitativo y cuantitativo reproducible mediante notebooks
 
-## 🏗️ Arquitectura ResNet-18
+Este repositorio está diseñado para reproducibilidad científica, en coherencia con la memoria del TFM.
 
-La arquitectura implementada incluye:
-- **Capa inicial**: Conv2d(7x7) + BatchNorm + ReLU + MaxPool
-- **4 Capas residuales**: 
-  - Layer 1: 2 bloques BasicBlock con 64 canales
-  - Layer 2: 2 bloques BasicBlock con 128 canales  
-  - Layer 3: 2 bloques BasicBlock con 256 canales
-  - Layer 4: 2 bloques BasicBlock con 512 canales
-- **Capa final**: AdaptiveAvgPool + Linear(512 → 15 clases)
-- **Total de parámetros**: ~11M parámetros entrenables
+## Arquitectura ResNet-18
 
-## 📊 Datasets Utilizados
+La arquitectura base es **ResNet-18** [He et al., 2016], adaptada dinámicamente al número de clases de cada dataset.
+Componentes principales:
+- Capa inicial: Conv2D (7×7) + BatchNorm + ReLU + MaxPooling
+- Cuatro bloques residuales:
+  - Layer1: 2 bloques, 64 canales
+  - Layer2: 2 bloques, 128 canales
+  - Layer3: 2 bloques, 256 canales
+  - Layer4: 2 bloques, 512 canales
+- Global Average Pooling
+- Capa fully connected final adaptada al número de clases del dataset
 
-| Dataset | Muestras Entrenamiento | Muestras Validación | Muestras Test | Clases | Canales |
-|---------|----------------------|-------------------|---------------|--------|---------|
-| BloodMNIST | 11,959 | 1,712 | 3,421 | 8 | RGB (3) |
-| RetinaMNIST | 1,080 | 120 | 400 | 5 | RGB (3) |
-| BreastMNIST | 546 | 78 | 156 | 2 | Escala de grises (1) |
-| **Total Combinado** | **13,585** | **1,910** | **3,977** | **15** | **Mixto** |
+La capa layer4 se utiliza como capa objetivo para métodos CAM, siguiendo la práctica habitual en la literatura.
 
-## 🚀 Instalación y Uso
+## Datasets Utilizados (MedMNIST v2)
+
+| Dataset | Clases | Canales | Dominio |
+|---------|----------------------|-------------------|---------------|
+| BloodMNIST | 8 | RGB(3) | Hematología |
+| RetinaMNIST | 5 | RGB(3) | Retinopatía diabética |
+| BreastMNIST | 2 | Escala de grises (1) | Ecografía mamaria |
+
+Los splits oficiales **train / validation / test** proporcionados por MedMNIST v2 se utilizan sin modificaciones.
+
+## Instalación
 
 ### Requisitos
-```bash
-torch>=2.0.0
-torchvision>=0.15.0
-medmnist>=2.1.0
-numpy>=1.21.0
-matplotlib>=3.5.0
-scikit-learn>=1.0.0
-tqdm>=4.64.0
-tensorboard>=2.10.0
-Pillow>=9.0.0
-```
+
+Las dependencias del proyecto están especificadas en `requirements.txt`.
+Principales librerías:
+- PyTorch
+- torchvision
+- medmnist
+- numpy
+- matplotlib
+- scikit-learn
+- captum
+- quantus
 
 ### Instalación
 ```bash
@@ -62,107 +72,97 @@ pip install -r requirements.txt
 ```bash
 python prepare_data.py
 ```
+Descarga y prepara los datasets MedMNIST, aplicando normalización y reescalado a 224×224 píxeles.
 
-2. **Probar la implementación** (3 épocas):
+2. **Entrenamiento de modelos (uno por dataset)**:
 ```bash
-python quick_test.py
+python train.py --dataset blood
+python train.py --dataset retina
+python train.py --dataset breast
 ```
+Se genera un checkpoint final por dataset:
+- `results/best_model_blood.pth`
+- `results/best_model_retina.pth`
+- `results/best_model_breast.pth`
 
-3. **Entrenamiento completo**:
+Además de métricas, curvas de entrenamiento y matrices de confusión.
+
+3. **Generación de explicaciones XAI**:
 ```bash
-python train.py --dataset retina --epochs 20 --batch-size 64 --lr 1e-3 --weight-decay 1e-4 --seed 42
+python xai_explanations.py
+```
+Aplica métodos de explicabilidad post-hoc sobre un subconjunto controlado del conjunto de test y guarda:
+- Mapas XAI (PNG)
+- Metadatos estructurados (`explanations_results_<dataset>.json`)
 
+4. **Evaluación cuantitativa de la explicabilidad**:
+```bash
+python quantus_evaluation.py --dataset blood
+python quantus_evaluation.py --dataset retina
+python quantus_evaluation.py --dataset breast
 ```
 
-## 📁 Estructura del Proyecto
+Calcula métricas de:
+- Fidelidad
+- Robustez
+- Complejidad
+- Localización
+
+Los resultados se procesan posteriormente en `notebooks/quantus_eval.ipynb`
+
+## Estructura del Proyecto
 
 ```
-medmnist_resnet18_project/
-├── prepare_data.py          # Preparación y carga de datasets
-├── resnet18.py             # Implementación de ResNet-18
-├── train.py                # Script de entrenamiento completo
-├── quick_test.py           # Prueba rápida (3 épocas)
-├── data_utils.py           # Utilidades para manejo de datos
-├── dataset_wrapper.py      # Wrapper para conversión de labels
-├── requirements.txt        # Dependencias del proyecto
-├── README.md              # Este archivo
-├── data/                  # Datasets descargados
-│   ├── bloodmnist.npz
-│   ├── retinamnist.npz
-│   └── breastmnist.npz
-└── results/               # Resultados del entrenamiento
-    ├── training_history.png
-    ├── confusion_matrix.png
-    ├── best_model.pth
-    └── training_results.json
+TFM_Laura_Monne/
+│
+├── data/                     # Datasets MedMNIST
+├── models/
+│   └── resnet18_adaptive.py
+├── results/
+│   ├── best_model_blood.pth
+│   ├── best_model_retina.pth
+│   └── best_model_breast.pth
+├── outputs/
+│   ├── gradcam/
+│   ├── gradcampp/
+│   ├── integrated_gradients/
+│   ├── saliency/
+│   └── explanations_results_<dataset>.json
+├── notebooks/
+│   ├── traint18.ipynb
+│   ├── xai_analisis.ipynb
+│   └── quantus_eval.ipynb
+├── prepare_data.py
+├── data_utils.py
+├── train.py
+├── xai_explanations.py
+├── quantus_evaluation.py
+├── XAI_README.md
+├── requirements.txt
+└── README.md
 ```
 
-## 🔧 Características Técnicas
+## Reproducibilidad
 
-### Data Augmentation
-- **Entrenamiento**: Redimensionamiento, flip horizontal, rotación, color jitter
-- **Validación/Test**: Solo redimensionamiento y normalización
-- **Manejo de canales**: Conversión automática de escala de grises a RGB
+Todos los experimentos pueden reproducirse fijando la semilla aleatoria:
 
-### Optimización
-- **Optimizador**: AdamW con weight decay
-- **Scheduler**: ReduceLROnPlateau
-- **Early Stopping**: Patience de 15 épocas
-- **Batch Size**: 64 (configurable)
-- **Epochs**: 120 épocas máximas
-
-### Métricas de Evaluación
-- Accuracy por época
-- Loss de entrenamiento y validación
-- Matriz de confusión
-- Reporte de clasificación detallado
-
-## 📈 Resultados
-
-En la prueba rápida (3 épocas):
-- **Precisión de entrenamiento**: ~72.5%
-- **Precisión de validación**: ~79.2%
-- **Tiempo de entrenamiento**: ~1.2 horas (CPU)
-
-## 🧠 Reproducibilidad
 ```` bash
 from train import set_seed
 set_seed(42)
 ````
-
-## 🎯 Próximos Pasos
-
-- [ ] Entrenamiento completo con más épocas
-- [ ] Optimización de hiperparámetros
-- [ ] Comparación con otras arquitecturas
-- [ ] Análisis de errores por dataset
-- [ ] Implementación de técnicas avanzadas (mixup, cutmix)
+Los artefactos generados (modelos, explicaciones, métricas) están completamente trazados mediante ficheros JSON y scripts versionados.
 
 
+##  Referencias Principales
 
-## 📚 Referencias
+- He et al., Deep Residual Learning for Image Recognition, CVPR 2016
+- Selvaraju et al., Grad-CAM, ICCV 2017
+- Chattopadhay et al., Grad-CAM++, WACV 2018
+- Ma et al., MedMNIST v2, Scientific Data 2022
+- Hedström et al., Quantus, JMLR 2023
 
-- [MedMNIST: A Large-Scale Lightweight Benchmark for 2D and 3D Biomedical Image Classification](https://medmnist.com/)
-- [Deep Residual Learning for Image Recognition](https://arxiv.org/abs/1512.03385)
-- [PyTorch Documentation](https://pytorch.org/docs/)
-
-## 📄 Licencia
+## Licencia
 
 Este proyecto está bajo la Licencia MIT. Ver el archivo `LICENSE` para más detalles.
 
-## 👥 Contribuciones
-
-Las contribuciones son bienvenidas. Por favor:
-1. Fork el proyecto
-2. Crea una rama para tu feature (`git checkout -b feature/AmazingFeature`)
-3. Commit tus cambios (`git commit -m 'Add some AmazingFeature'`)
-4. Push a la rama (`git push origin feature/AmazingFeature`)
-5. Abre un Pull Request
-
-## 📞 Contacto
-
-Para preguntas o sugerencias, por favor abre un issue en el repositorio.
-
----
-
-**Nota**: Este proyecto es parte de un trabajo académico sobre clasificación de imágenes médicas usando redes neuronales convolucionales.
+de un trabajo académico sobre clasificación de imágenes médicas usando redes neuronales convolucionales.
