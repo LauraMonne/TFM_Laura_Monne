@@ -1,12 +1,15 @@
 # 📈 Evaluación cuantitativa de la explicabilidad (Quantus)
 
-Este documento explica cómo ejecutar el script `quantus_evaluation.py` para medir la calidad de las explicaciones (Grad-CAM, Grad-CAM++, Integrated Gradients y Saliency) según las 5 dimensiones descritas en la memoria del TFM.
+Este documento explica cómo ejecutar el script `quantus_evaluation.py` para medir la calidad de las explicaciones (Grad-CAM, Grad-CAM++, Integrated Gradients y Saliency) sobre modelos entrenados de manera independiente por dataset.
 
 ## ✅ Requisitos previos
 
-- Haber entrenado el modelo (`python train.py`) y disponer de `results/best_model.pth`.
-- Haber generado las explicaciones base si se necesita comparar visualmente (`python xai_explanations.py`).
-- Tener instaladas las dependencias:
+1. Haber entrenado el modelo (`python train.py`) y disponer de los checkpoints:
+- results/best_model_blood.pth
+- results/best_model_retina.pth
+- results/best_model_breast.pth
+2. Tener los datasets MedMNIST preparados en la carpeta data/ (BloodMNIST, RetinaMNIST y BreastMNIST).
+3. Tener instaladas las dependencias del proyecto:
   ```bash
   pip install -r requirements.txt
   pip install quantus
@@ -14,24 +17,37 @@ Este documento explica cómo ejecutar el script `quantus_evaluation.py` para med
 
 ## 🚀 Ejecución del script
 
-Desde la raíz del proyecto:
+La evaluación cuantitativa se realiza por dataset, de forma coherente con el entrenamiento de tres modelos independientes.
 ```bash
 python quantus_evaluation.py \
-    --model_path results/best_model.pth \
+    --dataset blood \
+    --model_path results/best_model_blood.pth \
     --data_dir ./data \
-    --num_samples 30 \
-    --methods gradcam integrated_gradients saliency
+    --num_samples 30
+
+python quantus_evaluation.py \
+    --dataset retina \
+    --model_path results/best_model_retina.pth \
+    --data_dir ./data \
+    --num_samples 30
+
+python quantus_evaluation.py \
+    --dataset breast \
+    --model_path results/best_model_breast.pth \
+    --data_dir ./data \
+    --num_samples 30
 ```
 
 Parámetros principales:
 | Flag | Descripción | Default |
 |------|-------------|---------|
-| `--num_samples` | Nº de imágenes del test utilizadas para generar atribuciones | 30 |
-| `--methods` | Métodos XAI a evaluar (`gradcam`, `gradcampp`, `integrated_gradients`, `saliency`) | `gradcam ig saliency` |
-| `--output` | Ruta del JSON con resultados | `outputs/quantus_metrics.json` |
+| `--dataset` | Dataset a evaluar (`blood`, `retina`, `breast`) | Obligatorio |
+| `--model_path | Ruta al checkpoint del modelo | 30 |
+| `--num_samples` | Nº de imágenes del test utilizadas para generar atribuciones | Obligatorio |
+| `--methods` | Métodos XAI (`gradcam`, `gradcampp`, `integrated_gradients`, `saliency`) | Todos |
 | `--device` | `cuda` o `cpu` | Detectado automáticamente |
 
-## 🧠 Qué calcula cada métrica
+## Métricas de explicabilidad evaluadas
 
 | Dimensión | Métrica (Quantus) | Descripción resumida |
 |-----------|-------------------|----------------------|
@@ -41,40 +57,29 @@ Parámetros principales:
 | Aleatorización | `ModelParameterRandomisation` | Comprueba dependencia respecto a pesos del modelo. |
 | Localización | `RegionPerturbation` (proxy) | Evalúa qué ocurre al anular regiones de alta atribución. |
 
-**Nota**: Si se dispone de máscaras anatómicas/ROI, se puede extender el script para usar la métrica `AttributionLocalisation` de Quantus con supervisión.
+## Salida
 
-## 📁 Salida
+El script genera `outputs/quantus_metrics_<dataset>.json`.
 
-El script genera `outputs/quantus_metrics.json` con el siguiente formato:
-```json
-{
-  "gradcam": {
-    "faithfulness": {"mean": 0.74, "std": 0.11},
-    "robustness": {"mean": 0.18, "std": 0.05},
-    "complexity": {"mean": 2.10, "std": 0.30},
-    "randomization": {"mean": 0.80, "std": 0.07},
-    "localization": {"mean": 0.62, "std": 0.12}
-  },
-  "integrated_gradients": {...},
-  "saliency": {...}
-}
+Estos ficheros son posteriormente procesados en el notebook `quantus_eval.ipynb` para generar:
+- `quantus_table_raw_<dataset>.csv`
+- `quantus_table_normalized_<dataset>.csv`
+- `quantus_radar_<dataset>.png`
+
+Estos resultados se utilizan directamente en el Capítulo 4 (Resultados) y se discuten en el Capítulo 5 (Discusión) del TFM.
+
+
+## Flujo recomendado
+
+1. Entrenar los modelos
+```bash
+python train.py --dataset blood
+python train.py --dataset retina
+python train.py --dataset breast
 ```
-
-Estos resultados pueden exportarse a tablas o gráficos para la memoria del TFM.
-
-## 🛠️ Consejos prácticos
-
-- Reducir `--num_samples` si la GPU/CPU no dispone de suficiente memoria.
-- Usar `--methods gradcam gradcampp` para comparar ambas variantes.
-- Si se ejecuta en CPU, considerar `--num_samples 10` para pruebas rápidas.
-- Para análisis avanzados, trasladar el pipeline a un notebook y visualizar las distribuciones de cada métrica.
-
-## 🔄 Flujo recomendado
-
-1. Entrenar modelo (`train.py`).
-2. Generar mapas (`xai_explanations.py`).
-3. Ejecutar evaluación cuantitativa (`quantus_evaluation.py`).
-4. Analizar `outputs/quantus_metrics.json` y resumir en la memoria.
+2. Generar explicaciones visuales (`xai_explanations.py`).
+3. Ejecutar la evaluación cuantitativa con Quantus (por dataset).
+4. Analizar los resultados en `notebooks/quantus_eval.ipynb`.
 
 Con este flujo se cumple la sección 3.8 de la memoria, aportando métricas objetivas de fidelidad, robustez, complejidad, aleatorización y localización para los métodos de explicabilidad. 
 
