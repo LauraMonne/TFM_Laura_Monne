@@ -1,8 +1,17 @@
 """
 Preparación de datasets MedMNIST para ResNet-18.
-Incluye BloodMNIST, RetinaMNIST y BreastMNIST con redimensionamiento a 224x224
-y conversión consistente a 3 canales (RGB). Al combinar datasets se aplican
-offsets de clase para obtener un espacio global de 15 clases (8+5+2).
+
+En la versión actual del proyecto se trabaja **exclusivamente con tres modelos
+independientes**:
+- BloodMNIST  (8 clases)
+- RetinaMNIST (5 clases)
+- BreastMNIST (2 clases)
+
+Este módulo se encarga de:
+- Descargar y preparar **cada dataset por separado** (redimensionado a 224x224 y
+  conversión consistente a 3 canales RGB).
+- Proporcionar metadatos de cada dataset (`get_dataset_info`, `load_datasets`),
+  que son usados por `train.py`, `xai_explanations.py` y `quantus_evaluation.py`.
 """
 
 from __future__ import annotations
@@ -12,15 +21,12 @@ import json
 from typing import Dict, Sequence, Tuple
 
 import torch
-from torch.utils.data import ConcatDataset
 import medmnist
 from medmnist import INFO
 from torchvision import transforms
 import matplotlib.pyplot as plt
 
-from dataset_wrapper import MedMNISTWrapper
-
-# Define el orden canónico para calcular offsets de clase de forma consistente.
+# Orden canónico de datasets (usado para consistencia en visualización y metadatos).
 # Este orden es importante para que los offsets se calculen correctamente cuando se combinan datasets.
 CANONICAL_ORDER = ["bloodmnist", "retinamnist", "breastmnist"]
 
@@ -137,51 +143,6 @@ def load_datasets(data_dir: str = "./data", target_size: int = 224) -> Dict[str,
     return result
 
 # -----------------------
-# Combinación con offsets
-# -----------------------
-# Calcula los offsets de clase para combinar datasets.
-# BloodMNIST: 0 (8 clases: 0-7), RetinaMNIST: 8 (5 clases: 8-12)BreastMNIST: 13 (2 clases: 13-14), Total: 15 clases (0-14)
-# Devuelve un diccionario con los offsets de cada dataset.
-def _compute_offsets(names: Sequence[str], meta_all: Dict[str, dict]) -> Dict[str, int]:
-    offsets = {}
-    acc = 0
-    for name in names:
-        offsets[name] = acc
-        acc += int(meta_all[name]["n_classes"])
-    return offsets
-# Crea el dataset combinado con offsets de clase.
-# Combina los datasets de MedMNIST con offsets de clase para obtener un espacio global de 15 clases.
-# Devuelve un ConcatDataset con los datasets combinados.
-def create_combined_dataset(
-    datasets: Dict[str, dict] | Sequence[str],
-    split: str = "train",
-    data_dir: str = "./data",
-    target_size: int = 224,
-    apply_offsets: bool = True,
-) -> ConcatDataset:
-    if isinstance(datasets, dict):
-        # Fuerza orden canónico para offsets estables
-        names = [n for n in CANONICAL_ORDER if n in datasets.keys()]
-        loaded = datasets
-    else:
-        # Si llega una lista, también se respeta el orden canónico
-        names = [n for n in CANONICAL_ORDER if n in datasets]
-        loaded = load_datasets(data_dir=data_dir, target_size=target_size)
-
-    meta_all = get_dataset_info()
-    offsets = _compute_offsets(names, meta_all) if apply_offsets else {n: 0 for n in names}
-
-    parts = []
-    for name in names:
-        if name not in loaded:
-            raise KeyError(f"Dataset '{name}' no está cargado.")
-        base_ds = loaded[name][split]
-        wrapped = MedMNISTWrapper(base_ds, class_offset=offsets[name], dataset_name=name)
-        parts.append(wrapped)
-
-    return ConcatDataset(parts)
-
-# -----------------------
 # Visualización
 # -----------------------
 # Crea las transformaciones para la visualización.
@@ -253,7 +214,7 @@ def save_dataset_info(datasets: Dict[str, dict], filename: str = "dataset_info.j
 # -----------------------
 # Main
 # -----------------------
-# Main function que prepara los datos y crea los datasets combinados.
+# Main function que prepara los datos y (opcionalmente) visualiza / guarda info.
 def main():
     data_dir = "./data"
     target_size = 224
@@ -264,16 +225,10 @@ def main():
 
     os.makedirs(data_dir, exist_ok=True)
 
+    # Carga TODOS los datasets por separado. Estos serán utilizados después
+    # por `train.py` para crear DataLoaders específicos por dataset.
     datasets = load_datasets(data_dir=data_dir, target_size=target_size)
 
-    print("\nCreando datasets combinados con offsets de clase...")
-    combined_train = create_combined_dataset(datasets, split="train", apply_offsets=True)
-    combined_val   = create_combined_dataset(datasets, split="val",   apply_offsets=True)
-    combined_test  = create_combined_dataset(datasets, split="test",  apply_offsets=True)
-
-    print(f"Train combinado: {len(combined_train)} muestras")
-    print(f"Val   combinado: {len(combined_val)} muestras")
-    print(f"Test  combinado: {len(combined_test)} muestras")
 
     print("\nGenerando visualización de muestras...")
     visualize_samples(datasets)
@@ -292,10 +247,9 @@ El script prepare_data.py prepara los datasets MedMNIST para ResNet-18:
 2. Transformaciones:
 - Entrenamiento: redimensiona, aumentos (flip, rotación, ColorJitter), conversión a RGB si es necesario, normalización.
 - Evaluación: redimensiona, conversión a RGB si es necesario, normalización.
-3. Carga: descarga y carga BloodMNIST, RetinaMNIST y BreastMNIST (train/val/test).
-4. Combinación: aplica offsets de clase para un espacio global de 15 clases (0-14).
-5. Visualización: genera una figura con muestras de cada dataset.
-6. Persistencia: guarda metadatos en JSON.
+3. Carga: descarga y carga BloodMNIST, RetinaMNIST y BreastMNIST (train/val/test) por separado.
+4. Visualización: genera una figura con muestras de cada dataset.
+5. Persistencia: guarda metadatos en JSON.
 
-Resultado: datasets listos para entrenar ResNet-18 con imágenes de 224x224, 3 canales y etiquetas en un espacio global de 15 clases.
+Resultado: datasets listos para entrenar tres modelos ResNet-18 independientes (blood, retina, breast) con imágenes de 224x224 y 3 canales.
 """
