@@ -20,7 +20,6 @@ from typing import Dict, List, Tuple
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 
 warnings.filterwarnings("ignore")
@@ -54,7 +53,6 @@ except ImportError:
 import argparse
 from prepare_data import load_datasets, get_dataset_info
 from resnet18 import create_model
-from data_utils import create_data_loaders_fixed
 from train import create_data_loaders
 
 
@@ -660,7 +658,6 @@ Explicaciones XAI para ResNet-18:
 2. Proceso:
 - Carga el modelo entrenado
 - Carga datos de test
-- Muestreo estratificado (300 Blood, 150 Retina, 50 Breast)
 - Genera todas las explicaciones para cada imagen
 - Guarda mapas PNG en directorios organizados
 - Guarda metadatos en JSON
