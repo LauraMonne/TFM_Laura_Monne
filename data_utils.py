@@ -10,7 +10,6 @@ from typing import Any, List, Sequence, Tuple, Optional
 import random
 import numpy as np
 import torch
-from torch.utils.data import DataLoader
 from PIL import Image
 from torchvision.transforms import functional as F
 
@@ -121,115 +120,11 @@ def _seed_worker(worker_id: int) -> None:
     random.seed(seed)
 
 
-# -----------------------
-# DataLoaders
-# -----------------------
-# Función principal: crea DataLoaders para train/val/test con normalización a 3 canales y opciones de reproducibilidad.
-def create_data_loaders_fixed(
-    datasets: Sequence[str],
-    batch_size: int = 32,
-    num_workers: Optional[int] = 0,
-    seed: Optional[int] = None,
-    drop_last_train: bool = True,
-    shuffle_train: bool = True,
-):
-    """
-    Crea DataLoaders de train/val/test combinando datasets de MedMNIST,
-    aplicando un wrapper de etiquetas y usando un collate que normaliza a 3 canales.
-
-    Args:
-        datasets: Lista de nombres de datasets, p.ej. ["retina", "blood", "breast"].
-        batch_size: Tamaño de batch.
-        num_workers: Workers del DataLoader. 0 por defecto (estable en Windows).
-        seed: Semilla global (activa reproducibilidad del muestreo).
-        drop_last_train: Descarta último batch incompleto en train.
-        shuffle_train: Barajar train.
-
-    Returns:
-        (train_loader, val_loader, test_loader)
-    """
-    # Importes locales para evitar ciclos
-    from prepare_data import create_combined_dataset
-    from dataset_wrapper import MedMNISTWrapper
-
-    # Datasets combinados crudos
-    train_raw = create_combined_dataset(datasets, "train")
-    val_raw   = create_combined_dataset(datasets, "val")
-    test_raw  = create_combined_dataset(datasets, "test")
-
-    # Wrap
-    train_ds = MedMNISTWrapper(train_raw)
-    val_ds   = MedMNISTWrapper(val_raw)
-    test_ds  = MedMNISTWrapper(test_raw)
-
-    # Reproducibilidad
-    generator = None
-    worker_fn = None
-    if seed is not None:
-        generator = torch.Generator()
-        generator.manual_seed(seed)
-        worker_fn = _seed_worker
-        random.seed(seed)
-        np.random.seed(seed)
-        torch.manual_seed(seed)
-
-    pin_memory = torch.cuda.is_available()
-    persistent = bool(num_workers) and (num_workers or 0) > 0
-# Crea el DataLoader para train.
-    train_loader = DataLoader(
-        train_ds,
-        batch_size=batch_size,
-        shuffle=shuffle_train,
-        num_workers=(num_workers or 0),
-        pin_memory=pin_memory,
-        drop_last=drop_last_train,
-        collate_fn=custom_collate_fn,
-        worker_init_fn=worker_fn,
-        generator=generator,
-        persistent_workers=persistent,
-    )
-# Crea el DataLoader para validación.
-    val_loader = DataLoader(
-        val_ds,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=(num_workers or 0),
-        pin_memory=pin_memory,
-        drop_last=False,
-        collate_fn=custom_collate_fn,
-        worker_init_fn=worker_fn,
-        generator=generator,
-        persistent_workers=persistent,
-    )
-# Crea el DataLoader para test.
-    test_loader = DataLoader(
-        test_ds,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=(num_workers or 0),
-        pin_memory=pin_memory,
-        drop_last=False,
-        collate_fn=custom_collate_fn,
-        worker_init_fn=worker_fn,
-        generator=generator,
-        persistent_workers=persistent,
-    )
-#mImprime resumen y devuelve los tres DataLoaders.
-    print(
-        f"DataLoaders creados:\n"
-        f"  - Train: {len(train_ds)} muestras, {len(train_loader)} batches\n"
-        f"  - Val:   {len(val_ds)} muestras, {len(val_loader)} batches\n"
-        f"  - Test:  {len(test_ds)} muestras, {len(test_loader)} batches"
-    )
-
-    return train_loader, val_loader, test_loader
     """
     Resumen
     El script data_utils.py proporciona:
     1. Normalización de imágenes: _to_3ch_tensor convierte PIL/NumPy/Tensor a tensor (3, H, W) float32 en [0, 1], repitiendo canales si es necesario.
     2. Collate function: custom_collate_fn agrupa batches normalizando todas las imágenes.
     3. Reproducibilidad: _seed_worker y configuración de generadores para resultados deterministas.
-    4. DataLoaders: create_data_loaders_fixed crea train/val/test con configuración consistente.
-   
     Útil para trabajar con datasets médicos (MedMNIST) que pueden tener formatos variados, asegurando que todas las imágenes lleguen al modelo en el mismo formato (3 canales, float32, [0, 1]).
     """
