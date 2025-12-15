@@ -31,7 +31,8 @@ import seaborn as sns
 from tqdm import tqdm
 
 # Propios
-from prepare_data import load_datasets, create_combined_dataset, get_dataset_info
+from prepare_data import load_datasets, get_dataset_info
+from dataset_wrapper import MedMNISTWrapper
 from resnet18 import create_model, set_seed
 
 # AMP
@@ -315,52 +316,42 @@ class Trainer:
         plt.savefig(f"results/training_history{suffix}.png", dpi=150, bbox_inches="tight")
         plt.close()
 
-"""
-DataLoaders para entrenamiento/validación/test.
-Permiten entrenar:
-- Un modelo combinado (15 clases)    → dataset_name='combined'
-- Un modelo por dataset específico   → dataset_name in {'blood','retina','breast'}
-"""
-
-
 def create_data_loaders(
     datasets,
     batch_size: int = 64,
     num_workers: int = 4,
-    num_classes: int = 15,
-    dataset_name: str = "combined",
+    num_classes: int = 8,
+    dataset_name: str = "blood",
 ):
     """
     Crea los DataLoaders para entrenamiento/validación/test.
 
-    - Si dataset_name == 'combined': mezcla Blood+Retina+Breast (15 clases, con offsets).
-    - Si dataset_name == 'blood'   : solo BloodMNIST  (8 clases).
-    - Si dataset_name == 'retina'  : solo RetinaMNIST (5 clases).
-    - Si dataset_name == 'breast'  : solo BreastMNIST (2 clases).
+    Trabaja SIEMPRE con un único dataset individual:
+    - dataset_name == 'blood'   → solo BloodMNIST  (8 clases).
+    - dataset_name == 'retina'  → solo RetinaMNIST (5 clases).
+    - dataset_name == 'breast'  → solo BreastMNIST (2 clases).
     """
     persistent = num_workers > 0
 
-    if dataset_name == "combined":
-        train_dataset = create_combined_dataset(datasets, split="train")
-        val_dataset = create_combined_dataset(datasets, split="val")
-        test_dataset = create_combined_dataset(datasets, split="test")
-    else:
-        name_map = {
-            "blood": "bloodmnist",
-            "retina": "retinamnist",
-            "breast": "breastmnist",
-        }
-        if dataset_name not in name_map:
-            raise ValueError(f"Dataset desconocido: {dataset_name}")
-        med_name = name_map[dataset_name]
-        if med_name not in datasets:
-            raise KeyError(f"'{med_name}' no está cargado en datasets.")
+    name_map = {
+        "blood": "bloodmnist",
+        "retina": "retinamnist",
+        "breast": "breastmnist",
+    }
+    if dataset_name not in name_map:
+        raise ValueError(f"Dataset desconocido: {dataset_name}")
+    med_name = name_map[dataset_name]
+    if med_name not in datasets:
+        raise KeyError(f"'{med_name}' no está cargado en datasets.")
 
-        # Usamos create_combined_dataset pero pasando solo un dataset
-        sub = {med_name: datasets[med_name]}
-        train_dataset = create_combined_dataset(sub, split="train", apply_offsets=False)
-        val_dataset = create_combined_dataset(sub, split="val", apply_offsets=False)
-        test_dataset = create_combined_dataset(sub, split="test", apply_offsets=False)
+    # Dataset base (MedMNIST) y wrapper para normalizar etiquetas a enteros escalares.
+    base_train = datasets[med_name]["train"]
+    base_val = datasets[med_name]["val"]
+    base_test = datasets[med_name]["test"]
+
+    train_dataset = MedMNISTWrapper(base_train, class_offset=0, dataset_name=med_name)
+    val_dataset = MedMNISTWrapper(base_val, class_offset=0, dataset_name=med_name)
+    test_dataset = MedMNISTWrapper(base_test, class_offset=0, dataset_name=med_name)
 
     # Pesos de clase para la loss
     class_weights_vec, counts = compute_class_weights(train_dataset, num_classes=num_classes)
@@ -406,13 +397,13 @@ def create_data_loaders(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Entrenamiento ResNet-18 en MedMNIST (por dataset o combinado)."
+        description="Entrenamiento ResNet-18 en MedMNIST (un modelo por dataset)."
     )
     parser.add_argument(
         "--dataset",
-        default="combined",
-        choices=["combined", "blood", "retina", "breast"],
-        help="Qué dataset entrenar: combined (15 clases), blood, retina o breast.",
+        default="blood",
+        choices=["blood", "retina", "breast"],
+        help="Qué dataset entrenar: blood (8 clases), retina (5 clases) o breast (2 clases).",
     )
     return parser.parse_args()
 
@@ -423,25 +414,16 @@ def main():
 
     # Mapa dataset -> nombre interno MedMNIST
     name_map = {
-        "combined": "combined",
         "blood": "bloodmnist",
         "retina": "retinamnist",
         "breast": "breastmnist",
     }
 
     meta_all = get_dataset_info()
-    if args.dataset == "combined":
-        # 8 + 5 + 2
-        num_classes = (
-            meta_all["bloodmnist"]["n_classes"]
-            + meta_all["retinamnist"]["n_classes"]
-            + meta_all["breastmnist"]["n_classes"]
-        )
-    else:
-        med_name = name_map[args.dataset]
-        num_classes = int(meta_all[med_name]["n_classes"])
+    med_name = name_map[args.dataset]
+    num_classes = int(meta_all[med_name]["n_classes"])
 
-    suffix = "" if args.dataset == "combined" else f"_{args.dataset}"
+    suffix = f"_{args.dataset}"
     best_model_path = f"results/best_model{suffix}.pth"
     training_results_path = f"results/training_results{suffix}.json"
 
