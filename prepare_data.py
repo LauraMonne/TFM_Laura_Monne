@@ -21,13 +21,16 @@ import json
 from typing import Dict, Sequence, Tuple
 
 import torch
+from torch.utils.data import ConcatDataset
+import numpy as np
 import medmnist
 from medmnist import INFO
 from torchvision import transforms
 import matplotlib.pyplot as plt
 
-# Orden canónico de datasets (usado para consistencia en visualización y metadatos).
-# Este orden es importante para que los offsets se calculen correctamente cuando se combinan datasets.
+from dataset_wrapper import MedMNISTWrapper
+
+# Define el orden canónico para calcular offsets de clase de forma consistente.
 CANONICAL_ORDER = ["bloodmnist", "retinamnist", "breastmnist"]
 
 # -----------------------
@@ -145,16 +148,36 @@ def load_datasets(data_dir: str = "./data", target_size: int = 224) -> Dict[str,
 # -----------------------
 # Visualización
 # -----------------------
-# Crea las transformaciones para la visualización.
-# Aplica redimensionamiento y conversión a tensor.
+
+def _denormalize_tensor(img_tensor: torch.Tensor, mean=_RGB_MEAN, std=_RGB_STD) -> torch.Tensor:
+    """
+    Desnormaliza un tensor de imagen normalizado con ImageNet stats.
+    Convierte de (C, H, W) a (C, H, W) en rango [0, 1].
+    """
+    if img_tensor.dim() == 4:
+        img_tensor = img_tensor[0]  # Si es batch, toma el primero
+    
+    img = img_tensor.clone()
+    for c, (m, s) in enumerate(zip(mean, std)):
+        img[c] = img[c] * s + m
+    
+    return torch.clamp(img, 0.0, 1.0)
+
 def create_visualization_transforms(target_size: int = 224) -> transforms.Compose:
+    """
+    Crea transformaciones para visualización (sin normalización).
+    Útil para mostrar imágenes antes de aplicar normalización ImageNet.
+    """
     return transforms.Compose([
         transforms.Resize((target_size, target_size)),
         transforms.ToTensor()
     ])
-# Visualiza muestras de los datasets.
-# Muestra 5 muestras de cada dataset en una cuadrícula.
+
 def visualize_samples(datasets: Dict[str, dict], num_samples: int = 5) -> None:
+    """
+    Visualiza muestras de los datasets.
+    Las imágenes normalizadas se desnormalizan automáticamente para visualización correcta.
+    """
     rows = len(datasets)
     cols = num_samples
     fig, axes = plt.subplots(rows, cols, figsize=(3*cols, 3*rows))
@@ -166,21 +189,45 @@ def visualize_samples(datasets: Dict[str, dict], num_samples: int = 5) -> None:
             continue
         dct = datasets[name]
         ds = dct["train"]
+        meta = dct["meta"]
+        original_channels = meta["original_channels"]
+        
         for j in range(min(cols, len(ds))):
             img, label = ds[j]
+            
+            # Si es tensor, puede estar normalizado
             if isinstance(img, torch.Tensor):
+                # Desnormalizar si parece estar normalizado (valores fuera de [0,1])
+                if img.min() < 0 or img.max() > 1.5:
+                    img = _denormalize_tensor(img)
+                
+                # Convertir a formato de visualización
                 if img.shape[0] == 1:
+                    # Grayscale (1 canal)
                     vis = img.squeeze(0).numpy()
-                    axes[i, j].imshow(vis, cmap="gray")
+                    axes[i, j].imshow(vis, cmap="gray", vmin=0, vmax=1)
+                elif img.shape[0] == 3:
+                    # RGB (3 canales)
+                    vis = img.permute(1, 2, 0).numpy()
+                    vis = np.clip(vis, 0.0, 1.0)  # Asegurar rango [0,1]
+                    axes[i, j].imshow(vis)
                 else:
-                    axes[i, j].imshow(img.permute(1, 2, 0).numpy())
+                    # Fallback: mostrar primer canal
+                    vis = img[0].numpy()
+                    axes[i, j].imshow(vis, cmap="gray", vmin=0, vmax=1)
             else:
+                # PIL Image u otro formato
                 axes[i, j].imshow(img)
-            axes[i, j].set_title(f"{name}\nClase: {int(label) if hasattr(label,'__int__') else label}")
+            
+            # Título con información del dataset y clase
+            dataset_display_name = name.replace("mnist", "").upper()
+            axes[i, j].set_title(f"{dataset_display_name}\nClase: {int(label) if hasattr(label,'__int__') else label}", 
+                                fontsize=10)
             axes[i, j].axis("off")
 
     plt.tight_layout()
     plt.savefig("dataset_samples.png", dpi=150, bbox_inches="tight")
+    print("✅ Visualización guardada en 'dataset_samples.png'")
     plt.show()
 
 # -----------------------
