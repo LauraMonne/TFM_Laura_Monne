@@ -27,7 +27,6 @@
     "original_channels": 1,
     "input_channels": 3,
     "image_size": 28,
-    "task": "binary"
-    "notes": "Original grayscale images replicated to 3 channels for compatibility with ResNet-18"
+    "task": "binary-class"
   }
 }
