@@ -40,9 +40,65 @@ runs/
 
 # ---- Checkpoints y outputs ----
 checkpoints/
-outputs/
-results/  # donde guardas métricas, plots y reportes
 best_model.pth
+
+# ==============================
+# OUTPUTS
+# ==============================
+
+# Ignoramos TODO outputs por defecto
+outputs/*
+
+# --- PERMITIMOS los artefactos finales ---
+!outputs/explanations_results_*.json
+!outputs/quantus_metrics_*.json
+!outputs/quantus_radar_*.png
+!outputs/quantus_table_*.csv
+
+# --- PERMITIMOS las 24 imágenes usadas en el Notebook 3 ---
+
+# BLOOD correcto
+!outputs/blood/gradcam/img_0_class_3.png
+!outputs/blood/gradcampp/img_0_class_3.png
+!outputs/blood/integrated_gradients/img_0_class_3.png
+!outputs/blood/saliency/img_0_class_3.png
+
+# RETINA correcto
+!outputs/retina/gradcam/img_1_class_1.png
+!outputs/retina/gradcampp/img_1_class_1.png
+!outputs/retina/integrated_gradients/img_1_class_1.png
+!outputs/retina/saliency/img_1_class_1.png
+
+# BREAST correcto
+!outputs/breast/gradcam/img_1_class_1.png
+!outputs/breast/gradcampp/img_1_class_1.png
+!outputs/breast/integrated_gradients/img_1_class_1.png
+!outputs/breast/saliency/img_1_class_1.png
+
+# BLOOD incorrecto
+!outputs/blood/gradcam/img_8_class_5.png
+!outputs/blood/gradcampp/img_8_class_5.png
+!outputs/blood/integrated_gradients/img_8_class_5.png
+!outputs/blood/saliency/img_8_class_5.png
+
+# RETINA incorrecto
+!outputs/retina/gradcam/img_0_class_0.png
+!outputs/retina/gradcampp/img_0_class_0.png
+!outputs/retina/integrated_gradients/img_0_class_0.png
+!outputs/retina/saliency/img_0_class_0.png
+
+# BREAST incorrecto
+!outputs/breast/gradcam/img_0_class_1.png
+!outputs/breast/gradcampp/img_0_class_1.png
+!outputs/breast/integrated_gradients/img_0_class_1.png
+!outputs/breast/saliency/img_0_class_1.png
+
+# ==============================
+# RESULTS
+# ==============================
+
+# results SÍ se sube (no lo ignores)
+# results/
 
 # =======================================
 #  JUPYTER / GOOGLE COLAB
