@@ -11,8 +11,12 @@ Este módulo se encarga de:
 - Descargar y preparar **cada dataset por separado** (redimensionado a 224x224 y
   conversión consistente a 3 canales RGB).
 - **Descarga imágenes originales en tamaño 224x224** (en lugar de 28x28 preprocesadas) 
-  para todos los datasets (BloodMNIST, RetinaMNIST, BreastMNIST) para mejorar la 
-  precisión del entrenamiento.
+  para todos los datasets. Esto proporciona:
+  - Mejor precisión de clasificación (especialmente importante para RetinaMNIST)
+  - Explicaciones XAI más detalladas y precisas (Grad-CAM, Saliency, etc.)
+  - Métricas de Quantus más confiables (localización, fidelidad)
+  - Consistencia en el pipeline de análisis
+  - Mejor calidad para publicación/TFM
 - Proporcionar metadatos de cada dataset (`get_dataset_info`, `load_datasets`),
   que son usados por `train.py`, `xai_explanations.py` y `quantus_evaluation.py`.
 """
@@ -21,6 +25,7 @@ from __future__ import annotations
 
 import os
 import json
+import time
 from typing import Dict, Sequence, Tuple
 
 import torch
@@ -52,7 +57,7 @@ def get_dataset_info() -> Dict[str, dict]:
             "original_channels": 3,
             "input_channels": 3,
             "n_classes": 8,
-            "original_size": 224,  # Descargar imágenes originales en 224x224 (mejor calidad)
+            "original_size": 224,  # 224x224 para mejor análisis de explicabilidad (XAI)
         },
         "retinamnist": {
             "class": medmnist.RetinaMNIST,
@@ -61,7 +66,7 @@ def get_dataset_info() -> Dict[str, dict]:
             "original_channels": 3,
             "input_channels": 3,
             "n_classes": 5,
-            "original_size": 224,  # Descargar imágenes originales en 224x224 (mejor calidad)
+            "original_size": 224,  # 224x224 necesario para mejorar precisión y análisis XAI
         },
         "breastmnist": {
             "class": medmnist.BreastMNIST,
@@ -70,7 +75,7 @@ def get_dataset_info() -> Dict[str, dict]:
             "original_channels": 1,
             "input_channels": 3,
             "n_classes": 2,
-            "original_size": 224,  # Descargar imágenes originales en 224x224 (mejor calidad)
+            "original_size": 224,  # 224x224 para mejor análisis de explicabilidad (XAI)
         },
     }
 
@@ -119,6 +124,60 @@ def create_transforms(target_size: int = 224, original_channels: int = 3) -> Tup
 # -----------------------
 # Carga por dataset
 # -----------------------
+# Función auxiliar para cargar un dataset con reintentos en caso de error de descarga.
+def _load_dataset_with_retry(cls, split: str, transform, common_kwargs: dict, max_retries: int = 2, retry_delay: int = 10):
+    """
+    Intenta cargar un dataset con reintentos en caso de error de descarga.
+    
+    Args:
+        cls: Clase del dataset MedMNIST
+        split: "train", "val" o "test"
+        transform: Transformaciones a aplicar
+        common_kwargs: Argumentos comunes (download, root, as_rgb, size, etc.)
+        max_retries: Número máximo de reintentos (default: 2)
+        retry_delay: Segundos de espera entre reintentos (default: 10)
+    
+    Returns:
+        Dataset cargado exitosamente
+    """
+    for attempt in range(max_retries):
+        try:
+            return cls(
+                split=split,
+                transform=transform,
+                **common_kwargs
+            )
+        except RuntimeError as e:
+            error_msg = str(e)
+            if "Automatic download failed" in error_msg or "File not found or corrupted" in error_msg:
+                if attempt < max_retries - 1:
+                    print(f"  ⚠️  Intento {attempt + 1}/{max_retries} falló. Reintentando en {retry_delay} segundos...")
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    # Último intento falló, proporcionar instrucciones claras
+                    dataset_name = cls.__name__.lower().replace("mnist", "mnist")
+                    size_suffix = f"_{common_kwargs.get('size', '')}" if common_kwargs.get('size') else ""
+                    file_name = f"{dataset_name}{size_suffix}.npz"
+                    
+                    print(f"\n❌ ERROR: No se pudo descargar {file_name} después de {max_retries} intentos.")
+                    print(f"\n📥 SOLUCIÓN: Descarga manual del archivo")
+                    print(f"   Opción 1 (Recomendada): Ejecuta el script auxiliar:")
+                    print(f"      python download_medmnist_manual.py")
+                    print(f"\n   Opción 2 (Manual):")
+                    print(f"      1. Ve a: https://zenodo.org/records/10519652")
+                    print(f"      2. Busca y descarga: {file_name}")
+                    print(f"      3. Colócalo en: {common_kwargs.get('root', './data')}/")
+                    print(f"      4. Vuelve a ejecutar: python prepare_data.py\n")
+                    raise RuntimeError(
+                        f"Descarga automática falló para {file_name}. "
+                        f"Usa 'python download_medmnist_manual.py' para descarga manual."
+                    )
+            else:
+                # Otro tipo de error, relanzar
+                raise
+    raise RuntimeError(f"No se pudo cargar el dataset después de {max_retries} intentos")
+
 # Carga los datasets de MedMNIST.
 # Devuelve un diccionario con los datasets cargados: train, val, test y metadatos.
 # Para RetinaMNIST, usa imágenes originales en tamaño >= 224x224 en lugar de 28x28 preprocesadas.
@@ -154,25 +213,17 @@ def load_datasets(data_dir: str = "./data", target_size: int = 224) -> Dict[str,
         # Si original_size está especificado, úsalo para descargar imágenes más grandes
         if original_size is not None:
             common_kwargs["size"] = original_size
+            print(f"  📦 NOTA: Los archivos son grandes (~1.5GB cada uno). La descarga puede tardar varios minutos.")
         
-        # Carga los datasets de entrenamiento, validación y test.
-        train_ds = cls(
-            split="train",
-            transform=train_tf,
-            **common_kwargs
-        )
+        # Carga los datasets de entrenamiento, validación y test con reintentos.
+        print(f"  📥 Descargando train split...")
+        train_ds = _load_dataset_with_retry(cls, "train", train_tf, common_kwargs)
         
-        val_ds = cls(
-            split="val",
-            transform=eval_tf,
-            **common_kwargs
-        )
+        print(f"  📥 Descargando val split...")
+        val_ds = _load_dataset_with_retry(cls, "val", eval_tf, common_kwargs)
         
-        test_ds = cls(
-            split="test",
-            transform=eval_tf,
-            **common_kwargs
-        )
+        print(f"  📥 Descargando test split...")
+        test_ds = _load_dataset_with_retry(cls, "test", eval_tf, common_kwargs)
         
         # Agrega los datasets al diccionario de resultados.
         result[name] = {
