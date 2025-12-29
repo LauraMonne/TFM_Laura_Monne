@@ -133,21 +133,27 @@ def create_model(num_classes=15, pretrained=False, freeze_backbone=False):
         resnet18_pretrained = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
         
         # Reemplazar la capa final para nuestro número de clases
-        # Añadir Dropout para regularización (útil para datasets pequeños)
+        # Añadir Dropout más agresivo para reducir sobreajuste
         num_features = resnet18_pretrained.fc.in_features
+        dropout_rate = 0.7 if not freeze_backbone else 0.5  # Más dropout si entrenamos todo
         resnet18_pretrained.fc = nn.Sequential(
-            nn.Dropout(0.5),  # Dropout 50% para regularización
+            nn.Dropout(dropout_rate),  # Dropout más agresivo (0.7) para reducir sobreajuste
             nn.Linear(num_features, num_classes)
         )
         
         # Congelar capas del backbone si se solicita (útil para fine-tuning)
         if freeze_backbone:
             print("🔒 Congelando capas del backbone (solo se entrenará la capa final)...")
-            for param in resnet18_pretrained.parameters():
-                param.requires_grad = False
-            # Descongelar solo la capa final
-            for param in resnet18_pretrained.fc.parameters():
-                param.requires_grad = True
+            # Congelar todas las capas excepto la final
+            for name, param in resnet18_pretrained.named_parameters():
+                if 'fc' not in name:  # Congelar todo excepto la capa final
+                    param.requires_grad = False
+                else:
+                    param.requires_grad = True
+            # Contar parámetros entrenables
+            trainable = sum(p.numel() for p in resnet18_pretrained.parameters() if p.requires_grad)
+            total = sum(p.numel() for p in resnet18_pretrained.parameters())
+            print(f"   Parámetros entrenables: {trainable:,} / {total:,} ({100*trainable/total:.1f}%)")
         
         model = resnet18_pretrained
         print("✅ Modelo pre-entrenado cargado correctamente")
