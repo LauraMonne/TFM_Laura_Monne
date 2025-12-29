@@ -10,6 +10,9 @@ independientes**:
 Este módulo se encarga de:
 - Descargar y preparar **cada dataset por separado** (redimensionado a 224x224 y
   conversión consistente a 3 canales RGB).
+- **Descarga imágenes originales en tamaño 224x224** (en lugar de 28x28 preprocesadas) 
+  para todos los datasets (BloodMNIST, RetinaMNIST, BreastMNIST) para mejorar la 
+  precisión del entrenamiento.
 - Proporcionar metadatos de cada dataset (`get_dataset_info`, `load_datasets`),
   que son usados por `train.py`, `xai_explanations.py` y `quantus_evaluation.py`.
 """
@@ -38,6 +41,8 @@ CANONICAL_ORDER = ["bloodmnist", "retinamnist", "breastmnist"]
 # -----------------------
 # Obtiene información base de los datasets.
 # Devuelve un diccionario con metadatos de cada dataset: clase, info, tarea, canales originales/input y número de clases.
+# original_size: tamaño en el que descargar las imágenes originales (None = usar tamaño por defecto 28x28, 
+#                un entero = descargar en ese tamaño si está disponible)
 def get_dataset_info() -> Dict[str, dict]:
     return {
         "bloodmnist": {
@@ -47,6 +52,7 @@ def get_dataset_info() -> Dict[str, dict]:
             "original_channels": 3,
             "input_channels": 3,
             "n_classes": 8,
+            "original_size": 224,  # Descargar imágenes originales en 224x224 (mejor calidad)
         },
         "retinamnist": {
             "class": medmnist.RetinaMNIST,
@@ -55,6 +61,7 @@ def get_dataset_info() -> Dict[str, dict]:
             "original_channels": 3,
             "input_channels": 3,
             "n_classes": 5,
+            "original_size": 224,  # Descargar imágenes originales en 224x224 (mejor calidad)
         },
         "breastmnist": {
             "class": medmnist.BreastMNIST,
@@ -63,6 +70,7 @@ def get_dataset_info() -> Dict[str, dict]:
             "original_channels": 1,
             "input_channels": 3,
             "n_classes": 2,
+            "original_size": 224,  # Descargar imágenes originales en 224x224 (mejor calidad)
         },
     }
 
@@ -113,6 +121,7 @@ def create_transforms(target_size: int = 224, original_channels: int = 3) -> Tup
 # -----------------------
 # Carga los datasets de MedMNIST.
 # Devuelve un diccionario con los datasets cargados: train, val, test y metadatos.
+# Para RetinaMNIST, usa imágenes originales en tamaño >= 224x224 en lugar de 28x28 preprocesadas.
 def load_datasets(data_dir: str = "./data", target_size: int = 224) -> Dict[str, dict]:
     print("Cargando datasets de MedMNIST...")
     meta_all = get_dataset_info()
@@ -122,13 +131,49 @@ def load_datasets(data_dir: str = "./data", target_size: int = 224) -> Dict[str,
     for name in CANONICAL_ORDER:
         meta = meta_all[name]
         print(f"\nCargando {name.upper()}...")
+        
+        # Determina el tamaño original de descarga (si está especificado)
+        original_size = meta.get("original_size", None)
+        if original_size is not None:
+            print(f"  ⚠️  Descargando imágenes originales en tamaño {original_size}x{original_size} "
+                  f"(en lugar de 28x28 preprocesadas)")
+        
         # Crea las transformaciones para el entrenamiento y la evaluación.
+        # Si original_size está especificado, las imágenes ya vienen más grandes,
+        # pero aún necesitamos redimensionarlas al target_size si es diferente.
         train_tf, eval_tf = create_transforms(target_size, meta["original_channels"])
         cls = meta["class"]
+        
+        # Parámetros comunes para la descarga (sin split ni transform, que varían)
+        common_kwargs = {
+            "download": True,
+            "root": data_dir,
+            "as_rgb": True,  # Asegurar formato RGB
+        }
+        
+        # Si original_size está especificado, úsalo para descargar imágenes más grandes
+        if original_size is not None:
+            common_kwargs["size"] = original_size
+        
         # Carga los datasets de entrenamiento, validación y test.
-        train_ds = cls(split="train", transform=train_tf, download=True, root=data_dir)
-        val_ds   = cls(split="val",   transform=eval_tf, download=True, root=data_dir)
-        test_ds  = cls(split="test",  transform=eval_tf, download=True, root=data_dir)
+        train_ds = cls(
+            split="train",
+            transform=train_tf,
+            **common_kwargs
+        )
+        
+        val_ds = cls(
+            split="val",
+            transform=eval_tf,
+            **common_kwargs
+        )
+        
+        test_ds = cls(
+            split="test",
+            transform=eval_tf,
+            **common_kwargs
+        )
+        
         # Agrega los datasets al diccionario de resultados.
         result[name] = {
             "train": train_ds,
@@ -142,6 +187,11 @@ def load_datasets(data_dir: str = "./data", target_size: int = 224) -> Dict[str,
         print(f"  - Test:          {len(test_ds)}")
         print(f"  - Clases:        {meta['n_classes']}")
         print(f"  - Canales (orig):{meta['original_channels']} -> input: {meta['input_channels']}")
+        if original_size is not None:
+            print(f"  - Tamaño descarga: {original_size}x{original_size} (original)")
+        else:
+            print(f"  - Tamaño descarga: 28x28 (preprocesado)")
+        print(f"  - Tamaño final:  {target_size}x{target_size}")
     # Devuelve el diccionario de resultados.    
     return result
 
@@ -249,7 +299,7 @@ def save_dataset_info(datasets: Dict[str, dict], filename: str = "dataset_info.j
             "n_classes":     meta["n_classes"],
             "original_channels": meta["original_channels"],
             "input_channels":    meta["input_channels"],
-            "image_size": 28,
+            "image_size": dct["meta"].get("original_size", 28) or 28,
             "task": meta["task"],
         }
 
