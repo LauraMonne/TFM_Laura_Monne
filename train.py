@@ -427,19 +427,37 @@ def main():
     best_model_path = f"results/best_model{suffix}.pth"
     training_results_path = f"results/training_results{suffix}.json"
 
-    config = {
-        "batch_size": 64,
-        "epochs": 120,
-        "learning_rate": 1e-3,
-        "weight_decay": 1e-4,
-        "early_stopping_patience": 12,
-        "num_workers": 4,
-        "use_class_weights": True,
-        "grad_clip_norm": 1.0,
-        "num_classes": num_classes,
-        "dataset_name": args.dataset,
-        "best_model_path": best_model_path,
-    }
+    # Configuración adaptativa según el dataset
+    # RetinaMNIST es muy pequeño (1,080 muestras), necesita configuración especial
+    if args.dataset == "retina":
+        config = {
+            "batch_size": 32,  # Reducido de 64 a 32 para más batches por época
+            "epochs": 200,  # Aumentado de 120 a 200
+            "learning_rate": 5e-4,  # Reducido de 1e-3 a 5e-4 (más conservador)
+            "weight_decay": 1e-4,
+            "early_stopping_patience": 20,  # Aumentado de 12 a 20 (más paciencia)
+            "num_workers": 4,
+            "use_class_weights": True,
+            "grad_clip_norm": 1.0,
+            "num_classes": num_classes,
+            "dataset_name": args.dataset,
+            "best_model_path": best_model_path,
+        }
+    else:
+        # Configuración estándar para BloodMNIST y BreastMNIST
+        config = {
+            "batch_size": 64,
+            "epochs": 120,
+            "learning_rate": 1e-3,
+            "weight_decay": 1e-4,
+            "early_stopping_patience": 12,
+            "num_workers": 4,
+            "use_class_weights": True,
+            "grad_clip_norm": 1.0,
+            "num_classes": num_classes,
+            "dataset_name": args.dataset,
+            "best_model_path": best_model_path,
+        }
 
     print("=== ENTRENAMIENTO RESNET-18 (AMP, val/época, class weights, grad clip) ===")
     print("Dataset:", args.dataset, f"({num_classes} clases)")

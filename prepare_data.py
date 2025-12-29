@@ -95,12 +95,14 @@ def _make_train_transform(target_size: int, original_channels: int) -> transform
     return transforms.Compose([
         transforms.Resize((target_size, target_size)),
         transforms.RandomHorizontalFlip(p=0.5),
-        transforms.RandomRotation(degrees=10),
+        transforms.RandomVerticalFlip(p=0.5),  # Añadido para datasets médicos
+        transforms.RandomRotation(degrees=30),  # Aumentado de 10 a 30 grados
         transforms.ColorJitter(
-            brightness=0.2, contrast=0.2,
-            saturation=0.2 if original_channels != 1 else 0.0,
-            hue=0.1 if original_channels != 1 else 0.0
+            brightness=0.3, contrast=0.3,  # Aumentado de 0.2 a 0.3
+            saturation=0.3 if original_channels != 1 else 0.0,  # Aumentado
+            hue=0.15 if original_channels != 1 else 0.0  # Aumentado de 0.1 a 0.15
         ),
+        transforms.RandomAffine(degrees=0, translate=(0.1, 0.1), scale=(0.9, 1.1)),  # Añadido
         *to_rgb,
         transforms.ToTensor(),
         transforms.Normalize(mean=_RGB_MEAN, std=_RGB_STD),
