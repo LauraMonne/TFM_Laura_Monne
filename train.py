@@ -232,13 +232,23 @@ class Trainer:
             print(f"Entrenamiento - Loss: {train_loss:.4f}, Acc: {train_acc:.2f}%")
             print(f"Validación   - Loss: {val_loss:.4f}, Acc: {val_acc:.2f}%")
 
-            if val_loss < self.best_val_loss - 1e-6:
-                self.best_val_loss = val_loss
-                self.best_val_acc = val_acc
-                # Usar best_model_path del config si está disponible, sino usar el nombre por defecto
-                model_path = self.config.get('best_model_path', 'results/best_model.pth')
-                self.save_model(model_path)
-                print(f"✔️ Nuevo mejor modelo (val_loss={val_loss:.4f}, val_acc={val_acc:.2f}%)")
+            # Guardar mejor modelo basado en val_acc (mejor para datasets desbalanceados)
+            # o val_loss según configuración
+            use_acc_for_best = self.config.get('use_acc_for_best_model', False)
+            if use_acc_for_best:
+                if val_acc > self.best_val_acc + 1e-6:
+                    self.best_val_loss = val_loss
+                    self.best_val_acc = val_acc
+                    model_path = self.config.get('best_model_path', 'results/best_model.pth')
+                    self.save_model(model_path)
+                    print(f"✔️ Nuevo mejor modelo (val_acc={val_acc:.2f}%, val_loss={val_loss:.4f})")
+            else:
+                if val_loss < self.best_val_loss - 1e-6:
+                    self.best_val_loss = val_loss
+                    self.best_val_acc = val_acc
+                    model_path = self.config.get('best_model_path', 'results/best_model.pth')
+                    self.save_model(model_path)
+                    print(f"✔️ Nuevo mejor modelo (val_loss={val_loss:.4f}, val_acc={val_acc:.2f}%)")
 
             if self.early_stopping(val_loss, self.model):
                 print(f"⏹️ Early stopping activado en época {epoch+1}")
@@ -472,6 +482,7 @@ def main():
             "focal_gamma": 1.5,  # Gamma más bajo (2.0 → 1.5) para menos penalización
             "use_pretrained": True,  # Usar transfer learning
             "freeze_backbone": False,  # Entrenar todo el modelo (fine-tuning completo)
+            "use_acc_for_best_model": True,  # Guardar mejor modelo por val_acc (mejor para clases desbalanceadas)
             "grad_clip_norm": 1.0,
             "num_classes": num_classes,
             "dataset_name": args.dataset,
