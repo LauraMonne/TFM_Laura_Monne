@@ -107,16 +107,28 @@ class Trainer:
             lr=config['learning_rate'],
             weight_decay=config['weight_decay']
         )
-        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            self.optimizer, mode='min', factor=0.5, patience=3
-        )
+        # Scheduler adaptativo según configuración
+        scheduler_type = config.get('scheduler_type', 'plateau')
+        if scheduler_type == 'cosine':
+            # Cosine annealing con warmup (mejor para fine-tuning)
+            self.scheduler = optim.lr_scheduler.CosineAnnealingLR(
+                self.optimizer, T_max=config.get('epochs', 200), eta_min=1e-6
+            )
+        else:
+            # ReduceLROnPlateau (default)
+            scheduler_patience = config.get('scheduler_patience', 3)
+            scheduler_factor = config.get('scheduler_factor', 0.5)
+            self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+                self.optimizer, mode='min', factor=scheduler_factor, patience=scheduler_patience, min_lr=1e-6
+            )
 
         # Usar Focal Loss para RetinaMNIST (mejor para clases desbalanceadas)
         if config.get('use_focal_loss', False):
             try:
                 from focal_loss import FocalLoss
                 w = torch.tensor(class_weights, device=device, dtype=torch.float32) if (config.get('use_class_weights', True) and class_weights is not None) else None
-                self.criterion = FocalLoss(alpha=w, gamma=2.0, reduction='mean')
+                focal_gamma = config.get('focal_gamma', 2.0)  # Gamma ajustable
+                self.criterion = FocalLoss(alpha=w, gamma=focal_gamma, reduction='mean')
                 print("✅ Usando Focal Loss para manejar clases desbalanceadas")
             except ImportError:
                 print("⚠️  No se pudo importar FocalLoss, usando CrossEntropyLoss")
@@ -206,7 +218,11 @@ class Trainer:
             train_loss, train_acc = self.train_epoch()
             val_loss, val_acc = self.validate_epoch()
 
-            self.scheduler.step(val_loss)
+            # Actualizar scheduler según tipo
+            if isinstance(self.scheduler, optim.lr_scheduler.CosineAnnealingLR):
+                self.scheduler.step()
+            else:
+                self.scheduler.step(val_loss)
 
             self.history['train_loss'].append(train_loss)
             self.history['train_acc'].append(train_acc)
@@ -445,12 +461,15 @@ def main():
         config = {
             "batch_size": 32,  # Reducido de 64 a 32 para más batches por época
             "epochs": 200,  # Aumentado de 120 a 200
-            "learning_rate": 1e-4,  # Reducido aún más para fine-tuning con transfer learning
-            "weight_decay": 1e-4,
-            "early_stopping_patience": 25,  # Aumentado de 20 a 25 (más paciencia)
+            "learning_rate": 2e-4,  # Aumentado ligeramente (1e-4 → 2e-4) para mejor convergencia
+            "weight_decay": 2e-4,  # Aumentado de 1e-4 a 2e-4 para más regularización
+            "early_stopping_patience": 30,  # Aumentado de 25 a 30 (más paciencia)
+            "scheduler_patience": 5,  # Más paciencia antes de reducir LR
+            "scheduler_factor": 0.3,  # Reducción más suave (0.5 → 0.3)
             "num_workers": 4,
             "use_class_weights": True,
             "use_focal_loss": True,  # Usar Focal Loss para clases desbalanceadas
+            "focal_gamma": 1.5,  # Gamma más bajo (2.0 → 1.5) para menos penalización
             "use_pretrained": True,  # Usar transfer learning
             "freeze_backbone": False,  # Entrenar todo el modelo (fine-tuning completo)
             "grad_clip_norm": 1.0,

@@ -133,8 +133,12 @@ def create_model(num_classes=15, pretrained=False, freeze_backbone=False):
         resnet18_pretrained = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
         
         # Reemplazar la capa final para nuestro número de clases
+        # Añadir Dropout para regularización (útil para datasets pequeños)
         num_features = resnet18_pretrained.fc.in_features
-        resnet18_pretrained.fc = nn.Linear(num_features, num_classes)
+        resnet18_pretrained.fc = nn.Sequential(
+            nn.Dropout(0.5),  # Dropout 50% para regularización
+            nn.Linear(num_features, num_classes)
+        )
         
         # Congelar capas del backbone si se solicita (útil para fine-tuning)
         if freeze_backbone:
