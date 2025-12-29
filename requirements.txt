@@ -4,7 +4,9 @@ torchvision>=0.15.0
 torchaudio>=2.0.0
 
 # --- Datasets biomédicos ---
-medmnist>=2.1.0
+# Versión 3.0.0+ soporta parámetro 'size' para descargar imágenes originales (224x224)
+# en lugar de las preprocesadas de 28x28, mejorando la precisión del entrenamiento
+medmnist>=3.0.0
 
 # --- Ciencia de datos / métricas ---
 numpy>=1.23.0
