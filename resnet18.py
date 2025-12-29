@@ -133,23 +133,26 @@ def create_model(num_classes=15, pretrained=False, freeze_backbone=False):
         resnet18_pretrained = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
         
         # Reemplazar la capa final para nuestro número de clases
-        # Añadir Dropout más agresivo para reducir sobreajuste
+        # Añadir Dropout moderado (balance entre capacidad y regularización)
         num_features = resnet18_pretrained.fc.in_features
-        dropout_rate = 0.7 if not freeze_backbone else 0.5  # Más dropout si entrenamos todo
+        dropout_rate = 0.5  # Dropout moderado (balance entre capacidad y regularización)
         resnet18_pretrained.fc = nn.Sequential(
-            nn.Dropout(dropout_rate),  # Dropout más agresivo (0.7) para reducir sobreajuste
+            nn.Dropout(dropout_rate),
             nn.Linear(num_features, num_classes)
         )
         
-        # Congelar capas del backbone si se solicita (útil para fine-tuning)
+        # Fine-tuning gradual: descongelar capas progresivamente
         if freeze_backbone:
-            print("🔒 Congelando capas del backbone (solo se entrenará la capa final)...")
-            # Congelar todas las capas excepto la final
+            # Fine-tuning gradual: descongelar solo las últimas capas (layer4 + fc)
+            # Esto da más capacidad que solo fc, pero menos sobreajuste que todo
+            print("🔓 Fine-tuning gradual: descongelando layer4 y fc (manteniendo layer1-3 congeladas)...")
             for name, param in resnet18_pretrained.named_parameters():
-                if 'fc' not in name:  # Congelar todo excepto la capa final
-                    param.requires_grad = False
-                else:
+                if 'layer4' in name or 'fc' in name:
+                    # Descongelar layer4 (última capa convolucional) y fc
                     param.requires_grad = True
+                else:
+                    # Congelar layer1, layer2, layer3 y capas iniciales
+                    param.requires_grad = False
             # Contar parámetros entrenables
             trainable = sum(p.numel() for p in resnet18_pretrained.parameters() if p.requires_grad)
             total = sum(p.numel() for p in resnet18_pretrained.parameters())

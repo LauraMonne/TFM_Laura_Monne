@@ -476,19 +476,19 @@ def main():
         config = {
             "batch_size": 32,  # Reducido de 64 a 32 para más batches por época
             "epochs": 200,  # Aumentado de 120 a 200
-            "learning_rate": 1e-4,  # Reducido de 2e-4 a 1e-4 para reducir sobreajuste
-            "weight_decay": 3e-4,  # Aumentado de 2e-4 a 3e-4 para más regularización
-            "early_stopping_patience": 15,  # Reducido de 30 a 15 (detener antes cuando hay sobreajuste)
-            "scheduler_patience": 4,  # Reducir LR más rápido
-            "scheduler_factor": 0.5,  # Reducción más agresiva (0.3 → 0.5)
+            "learning_rate": 5e-5,  # LR más bajo para fine-tuning gradual (layer4 + fc)
+            "weight_decay": 1e-4,  # Reducido de 3e-4 a 1e-4 (menos regularización, más capacidad)
+            "early_stopping_patience": 25,  # Aumentado de 15 a 25 (más paciencia)
+            "scheduler_patience": 5,  # Más paciencia antes de reducir LR
+            "scheduler_factor": 0.3,  # Reducción más suave (0.5 → 0.3)
             "num_workers": 4,
             "use_class_weights": True,
             "use_focal_loss": True,  # Usar Focal Loss para clases desbalanceadas
-            "focal_gamma": 2.0,  # Aumentado de 1.5 a 2.0 para más enfoque en ejemplos difíciles
+            "focal_gamma": 1.5,  # Reducido de 2.0 a 1.5 (menos penalización)
             "use_pretrained": True,  # Usar transfer learning
-            "freeze_backbone": True,  # CONGELAR backbone (solo entrenar capa final) para reducir sobreajuste
+            "freeze_backbone": True,  # Fine-tuning gradual: descongelar layer4 + fc (mantener layer1-3 congeladas)
             "use_acc_for_best_model": True,  # Guardar mejor modelo por val_acc (mejor para clases desbalanceadas)
-            "label_smoothing": 0.1,  # Añadir label smoothing para reducir sobreajuste
+            "label_smoothing": 0.0,  # Desactivado (0.0) para no limitar capacidad
             "grad_clip_norm": 1.0,
             "num_classes": num_classes,
             "dataset_name": args.dataset,
