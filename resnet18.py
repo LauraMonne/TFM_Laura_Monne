@@ -143,15 +143,15 @@ def create_model(num_classes=15, pretrained=False, freeze_backbone=False):
         
         # Fine-tuning gradual: descongelar capas progresivamente
         if freeze_backbone:
-            # Fine-tuning gradual: descongelar solo las últimas capas (layer4 + fc)
-            # Esto da más capacidad que solo fc, pero menos sobreajuste que todo
-            print("🔓 Fine-tuning gradual: descongelando layer4 y fc (manteniendo layer1-3 congeladas)...")
+            # Fine-tuning más agresivo: descongelar layer3, layer4 y fc
+            # Esto da más capacidad que solo layer4, pero mantiene layer1-2 congeladas para regularización
+            print("🔓 Fine-tuning gradual: descongelando layer3, layer4 y fc (manteniendo layer1-2 congeladas)...")
             for name, param in resnet18_pretrained.named_parameters():
-                if 'layer4' in name or 'fc' in name:
-                    # Descongelar layer4 (última capa convolucional) y fc
+                if 'layer3' in name or 'layer4' in name or 'fc' in name:
+                    # Descongelar layer3, layer4 y fc
                     param.requires_grad = True
                 else:
-                    # Congelar layer1, layer2, layer3 y capas iniciales
+                    # Congelar layer1, layer2 y capas iniciales (conv1, bn1, maxpool)
                     param.requires_grad = False
             # Contar parámetros entrenables
             trainable = sum(p.numel() for p in resnet18_pretrained.parameters() if p.requires_grad)
