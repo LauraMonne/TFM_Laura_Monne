@@ -6,6 +6,7 @@ Incluye versión adaptativa y función de prueba.
 
 import torch
 import torch.nn as nn
+import torchvision.models as models
 
 # Reproductibilidad y rendimiento
 def set_seed(seed=42):
@@ -117,16 +118,47 @@ class ResNet18Adaptive(nn.Module):
         else:
             raise ValueError(f"Canales no soportados: {x.shape[1]} (esperado 1 o 3)")
 # Crea el modelo ResNet-18 adaptativo,  cuenta parámetros e imprime estadísticas.
-def create_model(num_classes=15, pretrained=False):
+def create_model(num_classes=15, pretrained=False, freeze_backbone=False):
+    """
+    Crea modelo ResNet-18.
+    
+    Args:
+        num_classes: Número de clases de salida
+        pretrained: Si True, usa pesos pre-entrenados de ImageNet (torchvision)
+        freeze_backbone: Si True y pretrained=True, congela las capas convolucionales
+    """
     if pretrained:
-        print("⚠️ ResNet-18 personalizado no tiene pesos preentrenados disponibles; se usará inicialización aleatoria.")
-    model = ResNet18Adaptive(num_classes=num_classes)
+        # Usar ResNet-18 de torchvision con pesos pre-entrenados de ImageNet
+        print("📥 Cargando ResNet-18 pre-entrenado en ImageNet...")
+        resnet18_pretrained = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
+        
+        # Reemplazar la capa final para nuestro número de clases
+        num_features = resnet18_pretrained.fc.in_features
+        resnet18_pretrained.fc = nn.Linear(num_features, num_classes)
+        
+        # Congelar capas del backbone si se solicita (útil para fine-tuning)
+        if freeze_backbone:
+            print("🔒 Congelando capas del backbone (solo se entrenará la capa final)...")
+            for param in resnet18_pretrained.parameters():
+                param.requires_grad = False
+            # Descongelar solo la capa final
+            for param in resnet18_pretrained.fc.parameters():
+                param.requires_grad = True
+        
+        model = resnet18_pretrained
+        print("✅ Modelo pre-entrenado cargado correctamente")
+    else:
+        # Usar nuestro modelo personalizado (sin pre-entrenamiento)
+        model = ResNet18Adaptive(num_classes=num_classes)
+    
     total = sum(p.numel() for p in model.parameters())
     train = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print("Modelo ResNet-18 creado:")
     print(f"  - Parámetros totales: {total:,}")
     print(f"  - Parámetros entrenables: {train:,}")
     print(f"  - Número de clases: {num_classes}")
+    if pretrained:
+        print(f"  - Pre-entrenado: ImageNet")
     return model
 # Prueba el modelo con imágenes RGB y en escala de grises, verificando que la salida tenga la forma esperada (batch_size, 15).
 # Si la salida no tiene la forma esperada, lanza un error.

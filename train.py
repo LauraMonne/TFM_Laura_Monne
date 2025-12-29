@@ -111,8 +111,20 @@ class Trainer:
             self.optimizer, mode='min', factor=0.5, patience=3
         )
 
-        w = torch.tensor(class_weights, device=device, dtype=torch.float32) if (config.get('use_class_weights', True) and class_weights is not None) else None
-        self.criterion = nn.CrossEntropyLoss(weight=w)
+        # Usar Focal Loss para RetinaMNIST (mejor para clases desbalanceadas)
+        if config.get('use_focal_loss', False):
+            try:
+                from focal_loss import FocalLoss
+                w = torch.tensor(class_weights, device=device, dtype=torch.float32) if (config.get('use_class_weights', True) and class_weights is not None) else None
+                self.criterion = FocalLoss(alpha=w, gamma=2.0, reduction='mean')
+                print("✅ Usando Focal Loss para manejar clases desbalanceadas")
+            except ImportError:
+                print("⚠️  No se pudo importar FocalLoss, usando CrossEntropyLoss")
+                w = torch.tensor(class_weights, device=device, dtype=torch.float32) if (config.get('use_class_weights', True) and class_weights is not None) else None
+                self.criterion = nn.CrossEntropyLoss(weight=w)
+        else:
+            w = torch.tensor(class_weights, device=device, dtype=torch.float32) if (config.get('use_class_weights', True) and class_weights is not None) else None
+            self.criterion = nn.CrossEntropyLoss(weight=w)
 
         self.early_stopping = EarlyStopping(
             patience=config['early_stopping_patience'],
@@ -433,11 +445,14 @@ def main():
         config = {
             "batch_size": 32,  # Reducido de 64 a 32 para más batches por época
             "epochs": 200,  # Aumentado de 120 a 200
-            "learning_rate": 5e-4,  # Reducido de 1e-3 a 5e-4 (más conservador)
+            "learning_rate": 1e-4,  # Reducido aún más para fine-tuning con transfer learning
             "weight_decay": 1e-4,
-            "early_stopping_patience": 20,  # Aumentado de 12 a 20 (más paciencia)
+            "early_stopping_patience": 25,  # Aumentado de 20 a 25 (más paciencia)
             "num_workers": 4,
             "use_class_weights": True,
+            "use_focal_loss": True,  # Usar Focal Loss para clases desbalanceadas
+            "use_pretrained": True,  # Usar transfer learning
+            "freeze_backbone": False,  # Entrenar todo el modelo (fine-tuning completo)
             "grad_clip_norm": 1.0,
             "num_classes": num_classes,
             "dataset_name": args.dataset,
@@ -481,7 +496,13 @@ def main():
     )
 
     # Modelo con el número de clases correcto
-    model = create_model(num_classes=config["num_classes"])
+    use_pretrained = config.get("use_pretrained", False)
+    freeze_backbone = config.get("freeze_backbone", False)
+    model = create_model(
+        num_classes=config["num_classes"],
+        pretrained=use_pretrained,
+        freeze_backbone=freeze_backbone
+    )
 
     trainer = Trainer(
         model,
