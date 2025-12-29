@@ -90,6 +90,35 @@ class EarlyStopping:
             return True
         return False
 
+# Early stopping basado en val_acc (mejor para datasets desbalanceados)
+class EarlyStoppingAcc:
+    def __init__(self, patience=7, min_delta=1e-4, restore_best_weights=True):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.restore_best_weights = restore_best_weights
+        self.best_acc = None
+        self.counter = 0
+        self.best_state = None
+    
+    def __call__(self, val_acc, model):
+        if self.best_acc is None:
+            self.best_acc = val_acc
+            self.best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+            return False
+
+        if val_acc > self.best_acc + self.min_delta:
+            self.best_acc = val_acc
+            self.counter = 0
+            self.best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+        else:
+            self.counter += 1
+
+        if self.counter >= self.patience:
+            if self.restore_best_weights and self.best_state is not None:
+                model.load_state_dict(self.best_state, strict=True)
+            return True
+        return False
+
 # ----------------------------- Trainer -----------------------------
 # Entrenador que maneja el entrenamiento, validación y evaluación.
 # Inicializa el entrenador con el modelo, DataLoaders, dispositivo, configuración y pesos de clase (opcional).
@@ -143,11 +172,22 @@ class Trainer:
             else:
                 self.criterion = nn.CrossEntropyLoss(weight=w)
 
-        self.early_stopping = EarlyStopping(
-            patience=config['early_stopping_patience'],
-            min_delta=1e-4,
-            restore_best_weights=True
-        )
+        # Early stopping: usar val_acc si está configurado, sino val_loss
+        use_acc_for_early_stop = config.get('use_acc_for_best_model', False)
+        if use_acc_for_early_stop:
+            # Early stopping basado en val_acc (mejor para clases desbalanceadas)
+            self.early_stopping = EarlyStoppingAcc(
+                patience=config['early_stopping_patience'],
+                min_delta=1e-4,
+                restore_best_weights=True
+            )
+        else:
+            # Early stopping basado en val_loss (default)
+            self.early_stopping = EarlyStopping(
+                patience=config['early_stopping_patience'],
+                min_delta=1e-4,
+                restore_best_weights=True
+            )
         self.scaler = GradScaler()
         self.history = {'train_loss': [], 'train_acc': [], 'val_loss': [], 'val_acc': []}
 
@@ -255,7 +295,14 @@ class Trainer:
                     self.save_model(model_path)
                     print(f"✔️ Nuevo mejor modelo (val_loss={val_loss:.4f}, val_acc={val_acc:.2f}%)")
 
-            if self.early_stopping(val_loss, self.model):
+            # Early stopping: usar val_acc o val_loss según configuración
+            use_acc_for_early_stop = self.config.get('use_acc_for_best_model', False)
+            if use_acc_for_early_stop:
+                should_stop = self.early_stopping(val_acc, self.model)
+            else:
+                should_stop = self.early_stopping(val_loss, self.model)
+            
+            if should_stop:
                 print(f"⏹️ Early stopping activado en época {epoch+1}")
                 break
 
@@ -478,7 +525,7 @@ def main():
             "epochs": 200,  # Aumentado de 120 a 200
             "learning_rate": 1e-4,  # Aumentado de 5e-5 a 1e-4 (más capacidad con layer3+layer4)
             "weight_decay": 2e-4,  # Aumentado de 1e-4 a 2e-4 (más regularización para evitar sobreajuste)
-            "early_stopping_patience": 20,  # Balance entre paciencia y detección de sobreajuste
+            "early_stopping_patience": 10,  # Reducido de 20 a 10 (detener antes cuando val_acc no mejora)
             "scheduler_patience": 5,  # Más paciencia antes de reducir LR
             "scheduler_factor": 0.3,  # Reducción más suave
             "num_workers": 4,
