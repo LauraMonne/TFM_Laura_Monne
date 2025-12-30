@@ -538,15 +538,15 @@ def main():
         config = {
             "batch_size": 32,  # Reducido de 64 a 32 para más batches por época
             "epochs": 200,  # Aumentado de 120 a 200
-            "learning_rate": 1e-4,  # Aumentado de 5e-5 a 1e-4 (más capacidad con layer3+layer4)
-            "weight_decay": 2e-4,  # Aumentado de 1e-4 a 2e-4 (más regularización para evitar sobreajuste)
-            "early_stopping_patience": 10,  # Reducido de 20 a 10 (detener antes cuando val_acc no mejora)
-            "scheduler_patience": 5,  # Más paciencia antes de reducir LR
-            "scheduler_factor": 0.3,  # Reducción más suave
+            "learning_rate": 1.2e-4,  # Ligeramente aumentado de 1e-4 a 1.2e-4 (más exploración)
+            "weight_decay": 2e-4,  # Mantener regularización
+            "early_stopping_patience": 12,  # Aumentado de 10 a 12 (dar más oportunidades de mejora)
+            "scheduler_patience": 6,  # Aumentado de 5 a 6 (más paciencia antes de reducir LR)
+            "scheduler_factor": 0.4,  # Aumentado de 0.3 a 0.4 (reducción menos agresiva)
             "num_workers": 4,
             "use_class_weights": True,
             "use_focal_loss": True,  # Usar Focal Loss para clases desbalanceadas
-            "focal_gamma": 1.5,  # Mantener en 1.5 (balance)
+            "focal_gamma": 2.0,  # Aumentado de 1.5 a 2.0 (más énfasis en clases difíciles)
             "use_pretrained": True,  # Usar transfer learning
             "freeze_backbone": True,  # Fine-tuning gradual: descongelar layer3+layer4+fc (mantener layer1-2 congeladas)
             "use_acc_for_best_model": True,  # Guardar mejor modelo por val_acc (mejor para clases desbalanceadas)
