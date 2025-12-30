@@ -363,17 +363,32 @@ class Trainer:
     def _plot_confusion_matrix(self, y_true, y_pred):
         os.makedirs("results", exist_ok=True)
         cm = confusion_matrix(y_true, y_pred)
+        
+        suffix = ""
+        if "dataset_name" in self.config and self.config["dataset_name"] != "combined":
+            suffix = f"_{self.config['dataset_name']}"
+        
+        # Matriz de confusión absoluta (valores enteros)
         plt.figure(figsize=(10, 8))
         sns.heatmap(cm, annot=True, fmt="d", cmap="Blues")
         plt.title("Matriz de Confusión (Test)")
         plt.xlabel("Predicción")
         plt.ylabel("Verdadero")
         plt.tight_layout()
-
-        suffix = ""
-        if "dataset_name" in self.config and self.config["dataset_name"] != "combined":
-            suffix = f"_{self.config['dataset_name']}"
         plt.savefig(f"results/confusion_matrix{suffix}.png", dpi=150, bbox_inches="tight")
+        plt.close()
+        
+        # Matriz de confusión normalizada (porcentajes por fila)
+        cm_normalized = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+        cm_normalized = np.nan_to_num(cm_normalized)  # Reemplazar NaN por 0 si hay división por 0
+        
+        plt.figure(figsize=(10, 8))
+        sns.heatmap(cm_normalized, annot=True, fmt=".2f", cmap="Blues", vmin=0, vmax=1)
+        plt.title("Matriz de Confusión Normalizada (Test) - Porcentajes por Fila")
+        plt.xlabel("Predicción")
+        plt.ylabel("Verdadero")
+        plt.tight_layout()
+        plt.savefig(f"results/confusion_matrix_normalized{suffix}.png", dpi=150, bbox_inches="tight")
         plt.close()
 # Guarda checkpoint con estado del modelo, optimizador, configuración y historial.
     def save_model(self, filename):
@@ -541,8 +556,8 @@ def main():
             "dataset_name": args.dataset,
             "best_model_path": best_model_path,
         }
-    else:
-        # Configuración estándar para BloodMNIST y BreastMNIST
+    elif args.dataset == "blood":
+        # Configuración estándar para BloodMNIST (dataset grande y bien comportado)
         config = {
             "batch_size": 64,
             "epochs": 120,
@@ -551,6 +566,34 @@ def main():
             "early_stopping_patience": 12,
             "num_workers": 4,
             "use_class_weights": True,
+            "grad_clip_norm": 1.0,
+            "num_classes": num_classes,
+            "dataset_name": args.dataset,
+            "best_model_path": best_model_path,
+        }
+    else:  # breast
+        # Configuración mejorada para BreastMNIST (dataset pequeño y desbalanceado)
+        # - Usamos transfer learning con ResNet-18 pre-entrenado en ImageNet.
+        # - Aplicamos Focal Loss para manejar el desbalance entre clases.
+        # - Reducimos el batch_size para tener más batches por época.
+        # - Aumentamos algo la regularización (weight_decay).
+        config = {
+            "batch_size": 32,
+            "epochs": 200,
+            "learning_rate": 5e-4,
+            "weight_decay": 2e-4,
+            "early_stopping_patience": 15,
+            "scheduler_patience": 5,
+            "scheduler_factor": 0.5,
+            "num_workers": 4,
+            "use_class_weights": True,
+            "use_focal_loss": True,
+            "focal_gamma": 2.0,
+            "use_pretrained": True,
+            # Fine-tuning gradual (igual que Retina): descongelar layer3, layer4 y fc.
+            "freeze_backbone": True,
+            "use_acc_for_best_model": False,  # para binario suele ser suficiente val_loss
+            "label_smoothing": 0.0,
             "grad_clip_norm": 1.0,
             "num_classes": num_classes,
             "dataset_name": args.dataset,
