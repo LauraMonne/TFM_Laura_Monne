@@ -195,22 +195,22 @@
     "global_idx": 8,
     "bucket": "blood",
     "true_class": 6,
-    "pred_class": 5,
+    "pred_class": 6,
     "methods": {
       "gradcam": {
-        "path": "outputs/blood/gradcam/img_8_class_5.png",
+        "path": "outputs/blood/gradcam/img_8_class_6.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/blood/gradcampp/img_8_class_5.png",
+        "path": "outputs/blood/gradcampp/img_8_class_6.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/blood/integrated_gradients/img_8_class_5.png",
+        "path": "outputs/blood/integrated_gradients/img_8_class_6.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/blood/saliency/img_8_class_5.png",
+        "path": "outputs/blood/saliency/img_8_class_6.png",
         "status": "success"
       }
     }
@@ -219,22 +219,22 @@
     "global_idx": 9,
     "bucket": "blood",
     "true_class": 1,
-    "pred_class": 0,
+    "pred_class": 1,
     "methods": {
       "gradcam": {
-        "path": "outputs/blood/gradcam/img_9_class_0.png",
+        "path": "outputs/blood/gradcam/img_9_class_1.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/blood/gradcampp/img_9_class_0.png",
+        "path": "outputs/blood/gradcampp/img_9_class_1.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/blood/integrated_gradients/img_9_class_0.png",
+        "path": "outputs/blood/integrated_gradients/img_9_class_1.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/blood/saliency/img_9_class_0.png",
+        "path": "outputs/blood/saliency/img_9_class_1.png",
         "status": "success"
       }
     }
@@ -2451,22 +2451,22 @@
     "global_idx": 102,
     "bucket": "blood",
     "true_class": 5,
-    "pred_class": 3,
+    "pred_class": 5,
     "methods": {
       "gradcam": {
-        "path": "outputs/blood/gradcam/img_102_class_3.png",
+        "path": "outputs/blood/gradcam/img_102_class_5.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/blood/gradcampp/img_102_class_3.png",
+        "path": "outputs/blood/gradcampp/img_102_class_5.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/blood/integrated_gradients/img_102_class_3.png",
+        "path": "outputs/blood/integrated_gradients/img_102_class_5.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/blood/saliency/img_102_class_3.png",
+        "path": "outputs/blood/saliency/img_102_class_5.png",
         "status": "success"
       }
     }
@@ -3555,22 +3555,22 @@
     "global_idx": 148,
     "bucket": "blood",
     "true_class": 3,
-    "pred_class": 5,
+    "pred_class": 3,
     "methods": {
       "gradcam": {
-        "path": "outputs/blood/gradcam/img_148_class_5.png",
+        "path": "outputs/blood/gradcam/img_148_class_3.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/blood/gradcampp/img_148_class_5.png",
+        "path": "outputs/blood/gradcampp/img_148_class_3.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/blood/integrated_gradients/img_148_class_5.png",
+        "path": "outputs/blood/integrated_gradients/img_148_class_3.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/blood/saliency/img_148_class_5.png",
+        "path": "outputs/blood/saliency/img_148_class_3.png",
         "status": "success"
       }
     }
@@ -4155,22 +4155,22 @@
     "global_idx": 173,
     "bucket": "blood",
     "true_class": 6,
-    "pred_class": 6,
+    "pred_class": 3,
     "methods": {
       "gradcam": {
-        "path": "outputs/blood/gradcam/img_173_class_6.png",
+        "path": "outputs/blood/gradcam/img_173_class_3.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/blood/gradcampp/img_173_class_6.png",
+        "path": "outputs/blood/gradcampp/img_173_class_3.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/blood/integrated_gradients/img_173_class_6.png",
+        "path": "outputs/blood/integrated_gradients/img_173_class_3.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/blood/saliency/img_173_class_6.png",
+        "path": "outputs/blood/saliency/img_173_class_3.png",
         "status": "success"
       }
     }
@@ -5883,22 +5883,22 @@
     "global_idx": 245,
     "bucket": "blood",
     "true_class": 6,
-    "pred_class": 3,
+    "pred_class": 6,
     "methods": {
       "gradcam": {
-        "path": "outputs/blood/gradcam/img_245_class_3.png",
+        "path": "outputs/blood/gradcam/img_245_class_6.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/blood/gradcampp/img_245_class_3.png",
+        "path": "outputs/blood/gradcampp/img_245_class_6.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/blood/integrated_gradients/img_245_class_3.png",
+        "path": "outputs/blood/integrated_gradients/img_245_class_6.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/blood/saliency/img_245_class_3.png",
+        "path": "outputs/blood/saliency/img_245_class_6.png",
         "status": "success"
       }
     }
@@ -6963,22 +6963,22 @@
     "global_idx": 290,
     "bucket": "blood",
     "true_class": 3,
-    "pred_class": 5,
+    "pred_class": 3,
     "methods": {
       "gradcam": {
-        "path": "outputs/blood/gradcam/img_290_class_5.png",
+        "path": "outputs/blood/gradcam/img_290_class_3.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/blood/gradcampp/img_290_class_5.png",
+        "path": "outputs/blood/gradcampp/img_290_class_3.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/blood/integrated_gradients/img_290_class_5.png",
+        "path": "outputs/blood/integrated_gradients/img_290_class_3.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/blood/saliency/img_290_class_5.png",
+        "path": "outputs/blood/saliency/img_290_class_3.png",
         "status": "success"
       }
     }
@@ -7995,22 +7995,22 @@
     "global_idx": 333,
     "bucket": "blood",
     "true_class": 3,
-    "pred_class": 6,
+    "pred_class": 3,
     "methods": {
       "gradcam": {
-        "path": "outputs/blood/gradcam/img_333_class_6.png",
+        "path": "outputs/blood/gradcam/img_333_class_3.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/blood/gradcampp/img_333_class_6.png",
+        "path": "outputs/blood/gradcampp/img_333_class_3.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/blood/integrated_gradients/img_333_class_6.png",
+        "path": "outputs/blood/integrated_gradients/img_333_class_3.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/blood/saliency/img_333_class_6.png",
+        "path": "outputs/blood/saliency/img_333_class_3.png",
         "status": "success"
       }
     }
@@ -8691,22 +8691,22 @@
     "global_idx": 362,
     "bucket": "blood",
     "true_class": 3,
-    "pred_class": 4,
+    "pred_class": 3,
     "methods": {
       "gradcam": {
-        "path": "outputs/blood/gradcam/img_362_class_4.png",
+        "path": "outputs/blood/gradcam/img_362_class_3.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/blood/gradcampp/img_362_class_4.png",
+        "path": "outputs/blood/gradcampp/img_362_class_3.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/blood/integrated_gradients/img_362_class_4.png",
+        "path": "outputs/blood/integrated_gradients/img_362_class_3.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/blood/saliency/img_362_class_4.png",
+        "path": "outputs/blood/saliency/img_362_class_3.png",
         "status": "success"
       }
     }
@@ -8931,22 +8931,22 @@
     "global_idx": 372,
     "bucket": "blood",
     "true_class": 5,
-    "pred_class": 5,
+    "pred_class": 4,
     "methods": {
       "gradcam": {
-        "path": "outputs/blood/gradcam/img_372_class_5.png",
+        "path": "outputs/blood/gradcam/img_372_class_4.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/blood/gradcampp/img_372_class_5.png",
+        "path": "outputs/blood/gradcampp/img_372_class_4.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/blood/integrated_gradients/img_372_class_5.png",
+        "path": "outputs/blood/integrated_gradients/img_372_class_4.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/blood/saliency/img_372_class_5.png",
+        "path": "outputs/blood/saliency/img_372_class_4.png",
         "status": "success"
       }
     }
@@ -9099,22 +9099,22 @@
     "global_idx": 379,
     "bucket": "blood",
     "true_class": 2,
-    "pred_class": 3,
+    "pred_class": 5,
     "methods": {
       "gradcam": {
-        "path": "outputs/blood/gradcam/img_379_class_3.png",
+        "path": "outputs/blood/gradcam/img_379_class_5.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/blood/gradcampp/img_379_class_3.png",
+        "path": "outputs/blood/gradcampp/img_379_class_5.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/blood/integrated_gradients/img_379_class_3.png",
+        "path": "outputs/blood/integrated_gradients/img_379_class_5.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/blood/saliency/img_379_class_3.png",
+        "path": "outputs/blood/saliency/img_379_class_5.png",
         "status": "success"
       }
     }
@@ -10323,22 +10323,22 @@
     "global_idx": 430,
     "bucket": "blood",
     "true_class": 0,
-    "pred_class": 5,
+    "pred_class": 0,
     "methods": {
       "gradcam": {
-        "path": "outputs/blood/gradcam/img_430_class_5.png",
+        "path": "outputs/blood/gradcam/img_430_class_0.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/blood/gradcampp/img_430_class_5.png",
+        "path": "outputs/blood/gradcampp/img_430_class_0.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/blood/integrated_gradients/img_430_class_5.png",
+        "path": "outputs/blood/integrated_gradients/img_430_class_0.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/blood/saliency/img_430_class_5.png",
+        "path": "outputs/blood/saliency/img_430_class_0.png",
         "status": "success"
       }
     }
@@ -10515,22 +10515,22 @@
     "global_idx": 438,
     "bucket": "blood",
     "true_class": 4,
-    "pred_class": 2,
+    "pred_class": 4,
     "methods": {
       "gradcam": {
-        "path": "outputs/blood/gradcam/img_438_class_2.png",
+        "path": "outputs/blood/gradcam/img_438_class_4.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/blood/gradcampp/img_438_class_2.png",
+        "path": "outputs/blood/gradcampp/img_438_class_4.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/blood/integrated_gradients/img_438_class_2.png",
+        "path": "outputs/blood/integrated_gradients/img_438_class_4.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/blood/saliency/img_438_class_2.png",
+        "path": "outputs/blood/saliency/img_438_class_4.png",
         "status": "success"
       }
     }
@@ -10587,22 +10587,22 @@
     "global_idx": 441,
     "bucket": "blood",
     "true_class": 0,
-    "pred_class": 4,
+    "pred_class": 0,
     "methods": {
       "gradcam": {
-        "path": "outputs/blood/gradcam/img_441_class_4.png",
+        "path": "outputs/blood/gradcam/img_441_class_0.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/blood/gradcampp/img_441_class_4.png",
+        "path": "outputs/blood/gradcampp/img_441_class_0.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/blood/integrated_gradients/img_441_class_4.png",
+        "path": "outputs/blood/integrated_gradients/img_441_class_0.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/blood/saliency/img_441_class_4.png",
+        "path": "outputs/blood/saliency/img_441_class_0.png",
         "status": "success"
       }
     }
@@ -11427,22 +11427,22 @@
     "global_idx": 476,
     "bucket": "blood",
     "true_class": 6,
-    "pred_class": 3,
+    "pred_class": 6,
     "methods": {
       "gradcam": {
-        "path": "outputs/blood/gradcam/img_476_class_3.png",
+        "path": "outputs/blood/gradcam/img_476_class_6.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/blood/gradcampp/img_476_class_3.png",
+        "path": "outputs/blood/gradcampp/img_476_class_6.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/blood/integrated_gradients/img_476_class_3.png",
+        "path": "outputs/blood/integrated_gradients/img_476_class_6.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/blood/saliency/img_476_class_3.png",
+        "path": "outputs/blood/saliency/img_476_class_6.png",
         "status": "success"
       }
     }
@@ -11835,22 +11835,22 @@
     "global_idx": 493,
     "bucket": "blood",
     "true_class": 3,
-    "pred_class": 5,
+    "pred_class": 3,
     "methods": {
       "gradcam": {
-        "path": "outputs/blood/gradcam/img_493_class_5.png",
+        "path": "outputs/blood/gradcam/img_493_class_3.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/blood/gradcampp/img_493_class_5.png",
+        "path": "outputs/blood/gradcampp/img_493_class_3.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/blood/integrated_gradients/img_493_class_5.png",
+        "path": "outputs/blood/integrated_gradients/img_493_class_3.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/blood/saliency/img_493_class_5.png",
+        "path": "outputs/blood/saliency/img_493_class_3.png",
         "status": "success"
       }
     }

@@ -123,22 +123,22 @@
     "global_idx": 5,
     "bucket": "breast",
     "true_class": 1,
-    "pred_class": 0,
+    "pred_class": 1,
     "methods": {
       "gradcam": {
-        "path": "outputs/breast/gradcam/img_5_class_0.png",
+        "path": "outputs/breast/gradcam/img_5_class_1.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/breast/gradcampp/img_5_class_0.png",
+        "path": "outputs/breast/gradcampp/img_5_class_1.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/breast/integrated_gradients/img_5_class_0.png",
+        "path": "outputs/breast/integrated_gradients/img_5_class_1.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/breast/saliency/img_5_class_0.png",
+        "path": "outputs/breast/saliency/img_5_class_1.png",
         "status": "success"
       }
     }
@@ -171,22 +171,22 @@
     "global_idx": 7,
     "bucket": "breast",
     "true_class": 0,
-    "pred_class": 1,
+    "pred_class": 0,
     "methods": {
       "gradcam": {
-        "path": "outputs/breast/gradcam/img_7_class_1.png",
+        "path": "outputs/breast/gradcam/img_7_class_0.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/breast/gradcampp/img_7_class_1.png",
+        "path": "outputs/breast/gradcampp/img_7_class_0.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/breast/integrated_gradients/img_7_class_1.png",
+        "path": "outputs/breast/integrated_gradients/img_7_class_0.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/breast/saliency/img_7_class_1.png",
+        "path": "outputs/breast/saliency/img_7_class_0.png",
         "status": "success"
       }
     }
@@ -339,22 +339,22 @@
     "global_idx": 14,
     "bucket": "breast",
     "true_class": 1,
-    "pred_class": 1,
+    "pred_class": 0,
     "methods": {
       "gradcam": {
-        "path": "outputs/breast/gradcam/img_14_class_1.png",
+        "path": "outputs/breast/gradcam/img_14_class_0.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/breast/gradcampp/img_14_class_1.png",
+        "path": "outputs/breast/gradcampp/img_14_class_0.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/breast/integrated_gradients/img_14_class_1.png",
+        "path": "outputs/breast/integrated_gradients/img_14_class_0.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/breast/saliency/img_14_class_1.png",
+        "path": "outputs/breast/saliency/img_14_class_0.png",
         "status": "success"
       }
     }
@@ -363,22 +363,22 @@
     "global_idx": 15,
     "bucket": "breast",
     "true_class": 0,
-    "pred_class": 1,
+    "pred_class": 0,
     "methods": {
       "gradcam": {
-        "path": "outputs/breast/gradcam/img_15_class_1.png",
+        "path": "outputs/breast/gradcam/img_15_class_0.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/breast/gradcampp/img_15_class_1.png",
+        "path": "outputs/breast/gradcampp/img_15_class_0.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/breast/integrated_gradients/img_15_class_1.png",
+        "path": "outputs/breast/integrated_gradients/img_15_class_0.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/breast/saliency/img_15_class_1.png",
+        "path": "outputs/breast/saliency/img_15_class_0.png",
         "status": "success"
       }
     }
@@ -387,22 +387,22 @@
     "global_idx": 16,
     "bucket": "breast",
     "true_class": 1,
-    "pred_class": 0,
+    "pred_class": 1,
     "methods": {
       "gradcam": {
-        "path": "outputs/breast/gradcam/img_16_class_0.png",
+        "path": "outputs/breast/gradcam/img_16_class_1.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/breast/gradcampp/img_16_class_0.png",
+        "path": "outputs/breast/gradcampp/img_16_class_1.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/breast/integrated_gradients/img_16_class_0.png",
+        "path": "outputs/breast/integrated_gradients/img_16_class_1.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/breast/saliency/img_16_class_0.png",
+        "path": "outputs/breast/saliency/img_16_class_1.png",
         "status": "success"
       }
     }
@@ -579,22 +579,22 @@
     "global_idx": 24,
     "bucket": "breast",
     "true_class": 0,
-    "pred_class": 1,
+    "pred_class": 0,
     "methods": {
       "gradcam": {
-        "path": "outputs/breast/gradcam/img_24_class_1.png",
+        "path": "outputs/breast/gradcam/img_24_class_0.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/breast/gradcampp/img_24_class_1.png",
+        "path": "outputs/breast/gradcampp/img_24_class_0.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/breast/integrated_gradients/img_24_class_1.png",
+        "path": "outputs/breast/integrated_gradients/img_24_class_0.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/breast/saliency/img_24_class_1.png",
+        "path": "outputs/breast/saliency/img_24_class_0.png",
         "status": "success"
       }
     }
@@ -603,22 +603,22 @@
     "global_idx": 25,
     "bucket": "breast",
     "true_class": 1,
-    "pred_class": 1,
+    "pred_class": 0,
     "methods": {
       "gradcam": {
-        "path": "outputs/breast/gradcam/img_25_class_1.png",
+        "path": "outputs/breast/gradcam/img_25_class_0.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/breast/gradcampp/img_25_class_1.png",
+        "path": "outputs/breast/gradcampp/img_25_class_0.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/breast/integrated_gradients/img_25_class_1.png",
+        "path": "outputs/breast/integrated_gradients/img_25_class_0.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/breast/saliency/img_25_class_1.png",
+        "path": "outputs/breast/saliency/img_25_class_0.png",
         "status": "success"
       }
     }
@@ -795,22 +795,22 @@
     "global_idx": 33,
     "bucket": "breast",
     "true_class": 1,
-    "pred_class": 0,
+    "pred_class": 1,
     "methods": {
       "gradcam": {
-        "path": "outputs/breast/gradcam/img_33_class_0.png",
+        "path": "outputs/breast/gradcam/img_33_class_1.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/breast/gradcampp/img_33_class_0.png",
+        "path": "outputs/breast/gradcampp/img_33_class_1.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/breast/integrated_gradients/img_33_class_0.png",
+        "path": "outputs/breast/integrated_gradients/img_33_class_1.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/breast/saliency/img_33_class_0.png",
+        "path": "outputs/breast/saliency/img_33_class_1.png",
         "status": "success"
       }
     }
@@ -1083,22 +1083,22 @@
     "global_idx": 45,
     "bucket": "breast",
     "true_class": 0,
-    "pred_class": 1,
+    "pred_class": 0,
     "methods": {
       "gradcam": {
-        "path": "outputs/breast/gradcam/img_45_class_1.png",
+        "path": "outputs/breast/gradcam/img_45_class_0.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/breast/gradcampp/img_45_class_1.png",
+        "path": "outputs/breast/gradcampp/img_45_class_0.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/breast/integrated_gradients/img_45_class_1.png",
+        "path": "outputs/breast/integrated_gradients/img_45_class_0.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/breast/saliency/img_45_class_1.png",
+        "path": "outputs/breast/saliency/img_45_class_0.png",
         "status": "success"
       }
     }
@@ -1251,22 +1251,22 @@
     "global_idx": 52,
     "bucket": "breast",
     "true_class": 1,
-    "pred_class": 1,
+    "pred_class": 0,
     "methods": {
       "gradcam": {
-        "path": "outputs/breast/gradcam/img_52_class_1.png",
+        "path": "outputs/breast/gradcam/img_52_class_0.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/breast/gradcampp/img_52_class_1.png",
+        "path": "outputs/breast/gradcampp/img_52_class_0.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/breast/integrated_gradients/img_52_class_1.png",
+        "path": "outputs/breast/integrated_gradients/img_52_class_0.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/breast/saliency/img_52_class_1.png",
+        "path": "outputs/breast/saliency/img_52_class_0.png",
         "status": "success"
       }
     }
@@ -1323,22 +1323,22 @@
     "global_idx": 55,
     "bucket": "breast",
     "true_class": 0,
-    "pred_class": 1,
+    "pred_class": 0,
     "methods": {
       "gradcam": {
-        "path": "outputs/breast/gradcam/img_55_class_1.png",
+        "path": "outputs/breast/gradcam/img_55_class_0.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/breast/gradcampp/img_55_class_1.png",
+        "path": "outputs/breast/gradcampp/img_55_class_0.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/breast/integrated_gradients/img_55_class_1.png",
+        "path": "outputs/breast/integrated_gradients/img_55_class_0.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/breast/saliency/img_55_class_1.png",
+        "path": "outputs/breast/saliency/img_55_class_0.png",
         "status": "success"
       }
     }
@@ -1491,22 +1491,22 @@
     "global_idx": 62,
     "bucket": "breast",
     "true_class": 1,
-    "pred_class": 1,
+    "pred_class": 0,
     "methods": {
       "gradcam": {
-        "path": "outputs/breast/gradcam/img_62_class_1.png",
+        "path": "outputs/breast/gradcam/img_62_class_0.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/breast/gradcampp/img_62_class_1.png",
+        "path": "outputs/breast/gradcampp/img_62_class_0.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/breast/integrated_gradients/img_62_class_1.png",
+        "path": "outputs/breast/integrated_gradients/img_62_class_0.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/breast/saliency/img_62_class_1.png",
+        "path": "outputs/breast/saliency/img_62_class_0.png",
         "status": "success"
       }
     }
@@ -1515,22 +1515,22 @@
     "global_idx": 63,
     "bucket": "breast",
     "true_class": 1,
-    "pred_class": 0,
+    "pred_class": 1,
     "methods": {
       "gradcam": {
-        "path": "outputs/breast/gradcam/img_63_class_0.png",
+        "path": "outputs/breast/gradcam/img_63_class_1.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/breast/gradcampp/img_63_class_0.png",
+        "path": "outputs/breast/gradcampp/img_63_class_1.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/breast/integrated_gradients/img_63_class_0.png",
+        "path": "outputs/breast/integrated_gradients/img_63_class_1.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/breast/saliency/img_63_class_0.png",
+        "path": "outputs/breast/saliency/img_63_class_1.png",
         "status": "success"
       }
     }
@@ -1635,22 +1635,22 @@
     "global_idx": 68,
     "bucket": "breast",
     "true_class": 0,
-    "pred_class": 1,
+    "pred_class": 0,
     "methods": {
       "gradcam": {
-        "path": "outputs/breast/gradcam/img_68_class_1.png",
+        "path": "outputs/breast/gradcam/img_68_class_0.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/breast/gradcampp/img_68_class_1.png",
+        "path": "outputs/breast/gradcampp/img_68_class_0.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/breast/integrated_gradients/img_68_class_1.png",
+        "path": "outputs/breast/integrated_gradients/img_68_class_0.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/breast/saliency/img_68_class_1.png",
+        "path": "outputs/breast/saliency/img_68_class_0.png",
         "status": "success"
       }
     }
@@ -1971,22 +1971,22 @@
     "global_idx": 82,
     "bucket": "breast",
     "true_class": 1,
-    "pred_class": 1,
+    "pred_class": 0,
     "methods": {
       "gradcam": {
-        "path": "outputs/breast/gradcam/img_82_class_1.png",
+        "path": "outputs/breast/gradcam/img_82_class_0.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/breast/gradcampp/img_82_class_1.png",
+        "path": "outputs/breast/gradcampp/img_82_class_0.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/breast/integrated_gradients/img_82_class_1.png",
+        "path": "outputs/breast/integrated_gradients/img_82_class_0.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/breast/saliency/img_82_class_1.png",
+        "path": "outputs/breast/saliency/img_82_class_0.png",
         "status": "success"
       }
     }
@@ -1995,22 +1995,22 @@
     "global_idx": 83,
     "bucket": "breast",
     "true_class": 1,
-    "pred_class": 0,
+    "pred_class": 1,
     "methods": {
       "gradcam": {
-        "path": "outputs/breast/gradcam/img_83_class_0.png",
+        "path": "outputs/breast/gradcam/img_83_class_1.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/breast/gradcampp/img_83_class_0.png",
+        "path": "outputs/breast/gradcampp/img_83_class_1.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/breast/integrated_gradients/img_83_class_0.png",
+        "path": "outputs/breast/integrated_gradients/img_83_class_1.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/breast/saliency/img_83_class_0.png",
+        "path": "outputs/breast/saliency/img_83_class_1.png",
         "status": "success"
       }
     }
@@ -2019,22 +2019,22 @@
     "global_idx": 84,
     "bucket": "breast",
     "true_class": 1,
-    "pred_class": 1,
+    "pred_class": 0,
     "methods": {
       "gradcam": {
-        "path": "outputs/breast/gradcam/img_84_class_1.png",
+        "path": "outputs/breast/gradcam/img_84_class_0.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/breast/gradcampp/img_84_class_1.png",
+        "path": "outputs/breast/gradcampp/img_84_class_0.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/breast/integrated_gradients/img_84_class_1.png",
+        "path": "outputs/breast/integrated_gradients/img_84_class_0.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/breast/saliency/img_84_class_1.png",
+        "path": "outputs/breast/saliency/img_84_class_0.png",
         "status": "success"
       }
     }
@@ -2259,22 +2259,22 @@
     "global_idx": 94,
     "bucket": "breast",
     "true_class": 1,
-    "pred_class": 0,
+    "pred_class": 1,
     "methods": {
       "gradcam": {
-        "path": "outputs/breast/gradcam/img_94_class_0.png",
+        "path": "outputs/breast/gradcam/img_94_class_1.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/breast/gradcampp/img_94_class_0.png",
+        "path": "outputs/breast/gradcampp/img_94_class_1.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/breast/integrated_gradients/img_94_class_0.png",
+        "path": "outputs/breast/integrated_gradients/img_94_class_1.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/breast/saliency/img_94_class_0.png",
+        "path": "outputs/breast/saliency/img_94_class_1.png",
         "status": "success"
       }
     }
@@ -2475,22 +2475,22 @@
     "global_idx": 103,
     "bucket": "breast",
     "true_class": 1,
-    "pred_class": 1,
+    "pred_class": 0,
     "methods": {
       "gradcam": {
-        "path": "outputs/breast/gradcam/img_103_class_1.png",
+        "path": "outputs/breast/gradcam/img_103_class_0.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/breast/gradcampp/img_103_class_1.png",
+        "path": "outputs/breast/gradcampp/img_103_class_0.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/breast/integrated_gradients/img_103_class_1.png",
+        "path": "outputs/breast/integrated_gradients/img_103_class_0.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/breast/saliency/img_103_class_1.png",
+        "path": "outputs/breast/saliency/img_103_class_0.png",
         "status": "success"
       }
     }
@@ -2499,22 +2499,22 @@
     "global_idx": 104,
     "bucket": "breast",
     "true_class": 0,
-    "pred_class": 1,
+    "pred_class": 0,
     "methods": {
       "gradcam": {
-        "path": "outputs/breast/gradcam/img_104_class_1.png",
+        "path": "outputs/breast/gradcam/img_104_class_0.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/breast/gradcampp/img_104_class_1.png",
+        "path": "outputs/breast/gradcampp/img_104_class_0.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/breast/integrated_gradients/img_104_class_1.png",
+        "path": "outputs/breast/integrated_gradients/img_104_class_0.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/breast/saliency/img_104_class_1.png",
+        "path": "outputs/breast/saliency/img_104_class_0.png",
         "status": "success"
       }
     }
@@ -2595,22 +2595,22 @@
     "global_idx": 108,
     "bucket": "breast",
     "true_class": 1,
-    "pred_class": 1,
+    "pred_class": 0,
     "methods": {
       "gradcam": {
-        "path": "outputs/breast/gradcam/img_108_class_1.png",
+        "path": "outputs/breast/gradcam/img_108_class_0.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/breast/gradcampp/img_108_class_1.png",
+        "path": "outputs/breast/gradcampp/img_108_class_0.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/breast/integrated_gradients/img_108_class_1.png",
+        "path": "outputs/breast/integrated_gradients/img_108_class_0.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/breast/saliency/img_108_class_1.png",
+        "path": "outputs/breast/saliency/img_108_class_0.png",
         "status": "success"
       }
     }
@@ -2859,22 +2859,22 @@
     "global_idx": 119,
     "bucket": "breast",
     "true_class": 0,
-    "pred_class": 1,
+    "pred_class": 0,
     "methods": {
       "gradcam": {
-        "path": "outputs/breast/gradcam/img_119_class_1.png",
+        "path": "outputs/breast/gradcam/img_119_class_0.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/breast/gradcampp/img_119_class_1.png",
+        "path": "outputs/breast/gradcampp/img_119_class_0.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/breast/integrated_gradients/img_119_class_1.png",
+        "path": "outputs/breast/integrated_gradients/img_119_class_0.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/breast/saliency/img_119_class_1.png",
+        "path": "outputs/breast/saliency/img_119_class_0.png",
         "status": "success"
       }
     }
@@ -3027,22 +3027,22 @@
     "global_idx": 126,
     "bucket": "breast",
     "true_class": 0,
-    "pred_class": 1,
+    "pred_class": 0,
     "methods": {
       "gradcam": {
-        "path": "outputs/breast/gradcam/img_126_class_1.png",
+        "path": "outputs/breast/gradcam/img_126_class_0.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/breast/gradcampp/img_126_class_1.png",
+        "path": "outputs/breast/gradcampp/img_126_class_0.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/breast/integrated_gradients/img_126_class_1.png",
+        "path": "outputs/breast/integrated_gradients/img_126_class_0.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/breast/saliency/img_126_class_1.png",
+        "path": "outputs/breast/saliency/img_126_class_0.png",
         "status": "success"
       }
     }
@@ -3051,22 +3051,22 @@
     "global_idx": 127,
     "bucket": "breast",
     "true_class": 0,
-    "pred_class": 0,
+    "pred_class": 1,
     "methods": {
       "gradcam": {
-        "path": "outputs/breast/gradcam/img_127_class_0.png",
+        "path": "outputs/breast/gradcam/img_127_class_1.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/breast/gradcampp/img_127_class_0.png",
+        "path": "outputs/breast/gradcampp/img_127_class_1.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/breast/integrated_gradients/img_127_class_0.png",
+        "path": "outputs/breast/integrated_gradients/img_127_class_1.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/breast/saliency/img_127_class_0.png",
+        "path": "outputs/breast/saliency/img_127_class_1.png",
         "status": "success"
       }
     }
@@ -3387,22 +3387,22 @@
     "global_idx": 141,
     "bucket": "breast",
     "true_class": 0,
-    "pred_class": 1,
+    "pred_class": 0,
     "methods": {
       "gradcam": {
-        "path": "outputs/breast/gradcam/img_141_class_1.png",
+        "path": "outputs/breast/gradcam/img_141_class_0.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/breast/gradcampp/img_141_class_1.png",
+        "path": "outputs/breast/gradcampp/img_141_class_0.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/breast/integrated_gradients/img_141_class_1.png",
+        "path": "outputs/breast/integrated_gradients/img_141_class_0.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/breast/saliency/img_141_class_1.png",
+        "path": "outputs/breast/saliency/img_141_class_0.png",
         "status": "success"
       }
     }
@@ -3435,22 +3435,22 @@
     "global_idx": 143,
     "bucket": "breast",
     "true_class": 1,
-    "pred_class": 0,
+    "pred_class": 1,
     "methods": {
       "gradcam": {
-        "path": "outputs/breast/gradcam/img_143_class_0.png",
+        "path": "outputs/breast/gradcam/img_143_class_1.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/breast/gradcampp/img_143_class_0.png",
+        "path": "outputs/breast/gradcampp/img_143_class_1.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/breast/integrated_gradients/img_143_class_0.png",
+        "path": "outputs/breast/integrated_gradients/img_143_class_1.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/breast/saliency/img_143_class_0.png",
+        "path": "outputs/breast/saliency/img_143_class_1.png",
         "status": "success"
       }
     }
@@ -3603,22 +3603,22 @@
     "global_idx": 150,
     "bucket": "breast",
     "true_class": 0,
-    "pred_class": 1,
+    "pred_class": 0,
     "methods": {
       "gradcam": {
-        "path": "outputs/breast/gradcam/img_150_class_1.png",
+        "path": "outputs/breast/gradcam/img_150_class_0.png",
         "status": "success"
       },
       "gradcampp": {
-        "path": "outputs/breast/gradcampp/img_150_class_1.png",
+        "path": "outputs/breast/gradcampp/img_150_class_0.png",
         "status": "success"
       },
       "integrated_gradients": {
-        "path": "outputs/breast/integrated_gradients/img_150_class_1.png",
+        "path": "outputs/breast/integrated_gradients/img_150_class_0.png",
         "status": "success"
       },
       "saliency": {
-        "path": "outputs/breast/saliency/img_150_class_1.png",
+        "path": "outputs/breast/saliency/img_150_class_0.png",
         "status": "success"
       }
     }
