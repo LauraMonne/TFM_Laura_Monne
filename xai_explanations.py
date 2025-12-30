@@ -422,9 +422,49 @@ class XAIExplainer:
 # ============================================================
 def load_trained_model(model_path: str, device: torch.device, num_classes: int = 15) -> nn.Module:
     print(f"Cargando modelo desde {model_path}...")
-    model = create_model(num_classes=num_classes)
     checkpoint = torch.load(model_path, map_location=device)
-    model.load_state_dict(checkpoint["model_state_dict"])
+    
+    # Intentar obtener la configuración del checkpoint
+    use_pretrained = False
+    freeze_backbone = False
+    
+    if "config" in checkpoint:
+        config = checkpoint["config"]
+        use_pretrained = config.get("use_pretrained", False)
+        freeze_backbone = config.get("freeze_backbone", False)
+        print(f"  Configuración detectada: pretrained={use_pretrained}, freeze_backbone={freeze_backbone}")
+    else:
+        # Si no hay config, intentar detectar el tipo de modelo por las claves del state_dict
+        state_dict_keys = list(checkpoint["model_state_dict"].keys())
+        # Si las claves empiezan con "rgb_model." o "gray_model.", es ResNet18Adaptive
+        if any(k.startswith("rgb_model.") or k.startswith("gray_model.") for k in state_dict_keys):
+            print("  Detectado: ResNet18Adaptive (sin pre-entrenamiento)")
+            use_pretrained = False
+        # Si las claves empiezan con "conv1." o "layer1.", es ResNet-18 estándar de torchvision
+        elif any(k.startswith("conv1.") or k.startswith("layer1.") for k in state_dict_keys):
+            print("  Detectado: ResNet-18 estándar (probablemente pre-entrenado)")
+            use_pretrained = True
+            # Si tiene "fc.1.weight" en lugar de "fc.weight", tiene Dropout (fine-tuning)
+            if any("fc.1.weight" in k for k in state_dict_keys):
+                freeze_backbone = True
+    
+    # Crear el modelo con la configuración correcta
+    model = create_model(
+        num_classes=num_classes,
+        pretrained=use_pretrained,
+        freeze_backbone=freeze_backbone
+    )
+    
+    # Cargar el state_dict
+    # Nota: cuando freeze_backbone=True, algunas capas pueden estar congeladas,
+    # pero el state_dict contiene todos los parámetros, así que cargamos todo
+    try:
+        model.load_state_dict(checkpoint["model_state_dict"], strict=True)
+    except RuntimeError as e:
+        print(f"  ⚠️ Advertencia: Error al cargar con strict=True: {e}")
+        print("  Intentando cargar con strict=False (ignorando claves no coincidentes)...")
+        model.load_state_dict(checkpoint["model_state_dict"], strict=False)
+    
     model.to(device)
     model.eval()
     print("Modelo cargado correctamente.")
