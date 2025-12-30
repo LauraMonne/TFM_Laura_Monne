@@ -76,10 +76,10 @@ outputs/*
 !outputs/breast/saliency/img_1_class_1.png
 
 # BLOOD incorrecto
-!outputs/blood/gradcam/img_8_class_5.png
-!outputs/blood/gradcampp/img_8_class_5.png
-!outputs/blood/integrated_gradients/img_8_class_5.png
-!outputs/blood/saliency/img_8_class_5.png
+!outputs/blood/gradcam/img_35_class_3.png
+!outputs/blood/gradcampp/img_35_class_3.png
+!outputs/blood/integrated_gradients/img_35_class_3.png
+!outputs/blood/saliency/img_35_class_3.png
 
 # RETINA incorrecto
 !outputs/retina/gradcam/img_0_class_0.png
