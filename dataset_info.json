@@ -6,7 +6,7 @@
     "n_classes": 8,
     "original_channels": 3,
     "input_channels": 3,
-    "image_size": 28,
+    "image_size": 224,
     "task": "multi-class"
   },
   "retinamnist": {
@@ -16,7 +16,7 @@
     "n_classes": 5,
     "original_channels": 3,
     "input_channels": 3,
-    "image_size": 28,
+    "image_size": 224,
     "task": "multi-class"
   },
   "breastmnist": {
@@ -26,7 +26,7 @@
     "n_classes": 2,
     "original_channels": 1,
     "input_channels": 3,
-    "image_size": 28,
+    "image_size": 224,
     "task": "binary-class"
   }
 }
