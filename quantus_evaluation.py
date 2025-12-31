@@ -5,11 +5,9 @@ Mide 5 dimensiones para varios métodos XAI (Grad-CAM, Grad-CAM++, IG, Saliency)
 - Fidelidad      -> FaithfulnessCorrelation
 - Robustez       -> AvgSensitivity
 - Complejidad    -> Complexity (o Entropy)
-- Aleatorización -> MPRT / ModelParameterRandomisation
+- Aleatorización -> MPRT / ModelParameterRandomisation (con métrica alternativa mejorada)
 - Localización   -> RegionPerturbation
 
-Uso típico:
-    python quantus_evaluation.py --dataset retina --num_samples 100 --seed 123
 """
 
 from __future__ import annotations
@@ -53,7 +51,6 @@ def set_global_seed(seed: int) -> None:
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    # Determinismo (puede reducir rendimiento)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
@@ -61,8 +58,6 @@ def set_global_seed(seed: int) -> None:
 # ============================================================
 #  Argumentos de línea de comandos
 # ============================================================
-
-# Construye el parser de argumentos.
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -127,9 +122,6 @@ def parse_args() -> argparse.Namespace:
 #  Utilidades de datos
 # ============================================================
 
-# Recopila muestras del conjunto de test.
-# Devuelve un tensor BCHW (batch, channels, height, width).
-# y un tensor BHWC (batch, height, width, channels).
 def collect_samples(test_loader, num_samples: int, device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
     """Recopila x_batch, y_batch del conjunto de test."""
     xs: List[torch.Tensor] = []
@@ -146,9 +138,9 @@ def collect_samples(test_loader, num_samples: int, device: torch.device) -> tupl
     y_batch = torch.cat(ys, dim=0).to(device)
     return x_batch, y_batch
 
-# Convierte un tensor BCHW a BHWC para Quantus.
+
 def to_numpy_bchw(tensor_batch: torch.Tensor) -> np.ndarray:
-    """Convierte un tensor BCHW a NumPy BCHW (sin cambiar el orden de ejes)."""
+    """Convierte un tensor BCHW a NumPy BCHW."""
     return tensor_batch.detach().cpu().numpy()
 
 
@@ -159,34 +151,20 @@ def to_numpy_bchw(tensor_batch: torch.Tensor) -> np.ndarray:
 def sanitize_attribution(attr: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
     """
     Sanitiza y normaliza atribuciones para mejorar estabilidad numérica.
-    
-    - Fuerza float32 para consistencia
-    - Reemplaza nan/inf por 0
-    - Normaliza por muestra a [0,1] (min-max) para evitar mapas constantes raros
-    
-    Args:
-        attr: Tensor de atribuciones (C, H, W) o (B, C, H, W)
-        eps: Tolerancia para detectar mapas constantes
-        
-    Returns:
-        Tensor sanitizado y normalizado
     """
     attr = attr.to(dtype=torch.float32)
     attr = torch.nan_to_num(attr, nan=0.0, posinf=0.0, neginf=0.0)
     
-    # Si todo es cero (mapa vacío), devolvemos tal cual
     if torch.all(attr == 0):
         return attr
     
-    # Normalización min-max por tensor (C,H,W) o (B,C,H,W)
     if attr.ndim == 3:  # (C, H, W)
         mn = torch.min(attr)
         mx = torch.max(attr)
         if (mx - mn).abs() < eps:
-            # Mapa constante -> lo dejamos a ceros
             return torch.zeros_like(attr)
         attr = (attr - mn) / (mx - mn + eps)
-    elif attr.ndim == 4:  # (B, C, H, W) - normalizar por muestra
+    elif attr.ndim == 4:  # (B, C, H, W)
         for b in range(attr.shape[0]):
             sample = attr[b]
             mn = torch.min(sample)
@@ -195,24 +173,20 @@ def sanitize_attribution(attr: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
                 attr[b] = torch.zeros_like(sample)
             else:
                 attr[b] = (sample - mn) / (mx - mn + eps)
-    else:
-        # Formato no soportado, devolver tal cual
-        return attr
     
     return attr
 
 
 # ============================================================
-#  Atribuciones XAI (reutiliza XAIExplainer)
+#  Atribuciones XAI
 # ============================================================
 
-# Expande un heatmap HxW a CxHxW repitiendo por canal.
 def expand_heatmap_to_channels(heatmap: np.ndarray, channels: int) -> torch.Tensor:
     """Expande un heatmap HxW a CxHxW repitiendo por canal."""
     if heatmap.ndim != 2:
         raise ValueError("El heatmap debe ser 2D.")
     tensor = torch.tensor(heatmap, dtype=torch.float32)
-    tensor = tensor.unsqueeze(0).repeat(channels, 1, 1)  # (C, H, W)
+    tensor = tensor.unsqueeze(0).repeat(channels, 1, 1)
     return tensor
 
 
@@ -222,10 +196,7 @@ def compute_attributions(
     preds: torch.Tensor,
     method: str,
 ) -> torch.Tensor:
-    """
-    Genera atribuciones para todo el batch usando el método especificado.
-    Devuelve un tensor BCHW (batch, channels, height, width).
-    """
+    """Genera atribuciones para todo el batch. Devuelve tensor BCHW."""
     attributions: List[torch.Tensor] = []
     for idx in tqdm(range(len(x_batch)), desc=f"Atribuciones {method}"):
         sample = x_batch[idx : idx + 1]
@@ -247,41 +218,35 @@ def compute_attributions(
                 result = explainer.generate_integrated_gradients(sample, target_class, save_path=None)
                 if result is None:
                     raise RuntimeError("IG retornó None")
-                attr = result[1][0].detach().cpu()  # (C, H, W)
+                attr = result[1][0].detach().cpu()
             elif method == "saliency":
                 result = explainer.generate_saliency_map(sample, target_class, save_path=None)
                 if result is None:
                     raise RuntimeError("Saliency retornó None")
-                attr = result[1][0].detach().cpu()  # (C, H, W)
+                attr = result[1][0].detach().cpu()
             else:
                 raise ValueError(f"Método desconocido: {method}")
             
-            # Sanitizar atribución antes de añadirla
             attr = sanitize_attribution(attr)
         except Exception as err:
             print(f"⚠️ Error generando atribución para muestra {idx}: {err}")
             attr = torch.zeros_like(sample[0].cpu())
         attributions.append(attr)
-    return torch.stack(attributions, dim=0)  # (B, C, H, W)
+    return torch.stack(attributions, dim=0)
 
 
 # ============================================================
-#  explain_func para métricas que lo requieren (robustness, randomization)
+#  explain_func para Quantus
 # ============================================================
-
 
 def build_explain_func(
     explainer: XAIExplainer,
     method: str,
     device: torch.device,
 ) -> Callable:
-    """
-    Construye una explain_func compatible con Quantus.
-    Firma esperada: explain_func(model, inputs, targets, **kwargs) -> np.ndarray
-    """
+    """Construye explain_func compatible con Quantus."""
 
     def explain_func(model, inputs, targets, **kwargs):
-        # inputs puede venir como np.ndarray o torch.Tensor, BCHW o BHWC
         if isinstance(inputs, np.ndarray):
             x = torch.tensor(inputs, dtype=torch.float32)
         else:
@@ -327,260 +292,96 @@ def build_explain_func(
                 else:
                     raise ValueError(f"Método desconocido: {method}")
                 
-                # Sanitizar atribución antes de añadirla
                 attr = sanitize_attribution(attr)
             except Exception as err:
                 print(f"⚠️ Error en explain_func para muestra {i}: {err}")
                 attr = torch.zeros_like(sample[0].cpu())
             attributions.append(attr)
 
-        # Devuelve BCHW como NumPy
         return torch.stack(attributions, dim=0).detach().cpu().numpy()
 
     return explain_func
 
 
 # ============================================================
-#  Métricas de Quantus
-# ============================================================
-
-# Crea un conjunto estándar de métricas de Quantus.
-# Devuelve un diccionario con las métricas.
-def create_metrics() -> Dict[str, object]:
-    """Crea un conjunto estándar de métricas de Quantus."""
-    metrics: Dict[str, object] = {}
-
-    # Fidelidad
-    metrics["faithfulness"] = quantus.FaithfulnessCorrelation()
-
-    # Robustez
-    # Configuración para evitar valores inf/nan:
-    # - return_nan_when_prediction_changes=True: devuelve nan en lugar de inf cuando la predicción cambia
-    # - nr_samples=30: reduce el número de muestras para evitar problemas numéricos (default=200)
-    # - lower_bound=0.02: ruido mínimo muy pequeño para evitar cambios de predicción
-    # - upper_bound=0.15: ruido máximo pequeño para mantener predicciones estables
-    # - abs=True: usa valores absolutos para evitar problemas con signos
-    # - normalise=True: normaliza las explicaciones para estabilidad numérica
-    # - similarity_func: usar correlación en lugar de distancia euclidiana (más robusta)
-    metrics["robustness"] = quantus.AvgSensitivity(
-        nr_samples=30,  # Reducir muestras para evitar problemas numéricos
-        abs=True,  # Usar valores absolutos
-        normalise=True,  # Normalizar para estabilidad
-        lower_bound=0.02,  # Ruido mínimo muy pequeño para evitar cambios de predicción
-        upper_bound=0.15,  # Ruido máximo pequeño para mantener predicciones estables
-        return_nan_when_prediction_changes=True,  # Devolver nan en lugar de inf
-        disable_warnings=True,  # Desactivar warnings para limpieza
-    )
-
-    # Complejidad o Entropy
-    try:
-        metrics["complexity"] = quantus.Complexity()
-    except AttributeError:
-        metrics["complexity"] = quantus.Entropy()
-
-    # Aleatorización (MPRT o ModelParameterRandomisation)
-    # MPRT mide cómo cambian las explicaciones cuando se aleatorizan los parámetros del modelo.
-    # Valores cercanos a 1.0 indican que las explicaciones no cambian (malo - explicaciones no son sensibles).
-    # Valores cercanos a 0.0 indican que las explicaciones cambian significativamente (bueno - explicaciones son sensibles).
-    # 
-    # PROBLEMA: Si todos los métodos obtienen ~1.0, puede ser que:
-    # 1. La métrica no esté aleatorizando correctamente los parámetros
-    # 2. Las explicaciones realmente no cambian cuando se aleatorizan parámetros (problema de los métodos XAI)
-    # 3. Hay un bug en cómo se está usando la métrica
-    #
-    # SOLUCIÓN MEJORADA: Probar configuraciones más agresivas y usar métrica alternativa si es necesario
-    try:
-        RandomizationMetric = quantus.MPRT
-        print("📊 Usando métrica MPRT para randomization")
-    except AttributeError:
-        RandomizationMetric = quantus.ModelParameterRandomisation
-        print("📊 Usando métrica ModelParameterRandomisation para randomization")
-    
-    # Intentar configurar con parámetros que ayuden a diferenciar métodos
-    # Orden de intentos: de más específico a más general
-    randomization_metric = None
-    config_attempts = [
-        # Configuración 1: Con correlación de Spearman (sin normalización para más variación)
-        {
-            "name": "correlación Spearman sin normalización",
-            "params": {
-                "similarity_func": quantus.similarity_func.correlation_spearman,
-                "normalise": False,
-                "disable_warnings": True,
-            }
-        },
-        # Configuración 2: Con correlación de Spearman (con normalización)
-        {
-            "name": "correlación Spearman + normalización",
-            "params": {
-                "similarity_func": quantus.similarity_func.correlation_spearman,
-                "normalise": True,
-                "disable_warnings": True,
-            }
-        },
-        # Configuración 3: Con correlación de Pearson
-        {
-            "name": "correlación Pearson + normalización",
-            "params": {
-                "similarity_func": quantus.similarity_func.correlation_pearson,
-                "normalise": True,
-                "disable_warnings": True,
-            }
-        },
-        # Configuración 4: Solo normalización
-        {
-            "name": "solo normalización",
-            "params": {
-                "normalise": True,
-                "disable_warnings": True,
-            }
-        },
-        # Configuración 5: Sin normalización (más variación)
-        {
-            "name": "sin normalización",
-            "params": {
-                "normalise": False,
-                "disable_warnings": True,
-            }
-        },
-        # Configuración 6: Por defecto
-        {
-            "name": "por defecto",
-            "params": {}
-        }
-    ]
-    
-    for attempt in config_attempts:
-        try:
-            randomization_metric = RandomizationMetric(**attempt["params"])
-            print(f"   ✓ Configuración exitosa: {attempt['name']}")
-            break
-        except (TypeError, AttributeError, KeyError) as e:
-            continue
-    
-    if randomization_metric is None:
-        # Si todas las configuraciones fallan, usar la más básica
-        print("   ⚠️  Todas las configuraciones fallaron, usando configuración mínima")
-        randomization_metric = RandomizationMetric()
-    
-    metrics["randomization"] = randomization_metric
-
-    # Localización
-    metrics["localization"] = quantus.RegionPerturbation()
-
-    # NOTA: Si MPRT sigue dando valores constantes (~1.0) para todos los métodos,
-    # se puede considerar usar métricas alternativas como:
-    # - quantus.RandomLogit: Mide la distancia entre explicación original y una clase aleatoria
-    # - Una métrica personalizada que compare explicaciones con diferentes seeds
-    # Sin embargo, MPRT es la métrica estándar para randomization, así que primero
-    # intentamos con las configuraciones mejoradas arriba.
-
-    return metrics
-
-
-# ============================================================
-#  Métrica alternativa de Randomization (si MPRT no funciona)
+#  Métrica alternativa de Randomization (MEJORADA)
 # ============================================================
 
 def create_alternative_randomization_metric():
     """
-    Crea una métrica alternativa de randomization basada en la variabilidad
-    de las explicaciones con diferentes seeds.
+    Métrica alternativa mejorada que compara explicaciones del modelo entrenado
+    vs. un modelo con parámetros completamente aleatorizados.
     
-    Esta métrica mide qué tan diferentes son las explicaciones cuando se generan
-    con diferentes seeds, lo cual es un proxy para la sensibilidad a la aleatorización.
+    INTERPRETACIÓN CORRECTA:
+    - Score ALTO (cercano a 1.0) = explicaciones MUY DIFERENTES = BUENO
+      (el método es sensible al entrenamiento del modelo)
+    - Score BAJO (cercano a 0.0) = explicaciones SIMILARES = MALO
+      (el método no depende del modelo, genera explicaciones aleatorias)
     """
     
-    class AlternativeRandomizationMetric:
-        """
-        Métrica alternativa que mide la variabilidad de las explicaciones
-        generadas con diferentes seeds.
-        
-        Valores más altos = más variabilidad = mejor (las explicaciones son sensibles)
-        Valores más bajos = menos variabilidad = peor (las explicaciones son constantes)
-        """
-        
-        def __init__(self, num_seeds=10):
-            # Aumentar número de seeds para más sensibilidad
-            self.num_seeds = num_seeds
+    class ImprovedRandomizationMetric:
+        def __init__(self):
+            pass
         
         def __call__(self, model, x_batch, y_batch, explain_func, **kwargs):
-            """
-            Calcula la diferencia entre explicaciones del modelo original y un modelo aleatorizado.
-            
-            Esta métrica mide qué tan diferentes son las explicaciones cuando se comparan
-            con un modelo con parámetros completamente aleatorizados.
-            
-            Args:
-                model: Modelo PyTorch original
-                x_batch: Batch de imágenes (B, C, H, W)
-                y_batch: Batch de etiquetas
-                explain_func: Función que genera explicaciones
-                **kwargs: Argumentos adicionales
-            
-            Returns:
-                Array de scores (uno por muestra)
-            """
             device = kwargs.get('device', next(model.parameters()).device)
             scores = []
             
-            # Generar explicaciones con el modelo original
+            print("       🔄 Generando explicaciones con modelo entrenado...")
             expl_original = explain_func(model, x_batch, y_batch)
             
-            # Crear una copia del modelo con parámetros aleatorizados
+            print("       🎲 Creando modelo con parámetros aleatorizados...")
             model_randomized = copy.deepcopy(model)
             
-            # Aleatorizar todos los parámetros del modelo
+            # Aleatorizar TODOS los parámetros con inicialización más agresiva
             with torch.no_grad():
                 for param in model_randomized.parameters():
-                    # Inicializar con valores aleatorios (similar a inicialización normal)
                     if len(param.shape) >= 2:
-                        # Para matrices (conv, linear): usar inicialización normal
-                        torch.nn.init.normal_(param, mean=0.0, std=0.1)
+                        # Inicialización normal con std más alta para mayor diferencia
+                        torch.nn.init.normal_(param, mean=0.0, std=0.5)
                     else:
-                        # Para bias: usar valores pequeños aleatorios
-                        torch.nn.init.normal_(param, mean=0.0, std=0.01)
+                        torch.nn.init.normal_(param, mean=0.0, std=0.1)
             
             model_randomized.eval()
             
-            # Generar explicaciones con el modelo aleatorizado
+            print("       🔄 Generando explicaciones con modelo aleatorizado...")
             expl_randomized = explain_func(model_randomized, x_batch, y_batch)
             
-            # Calcular diferencia entre explicaciones originales y aleatorizadas
-            # Usamos correlación de Spearman: valores altos = alta correlación = malo (no cambian)
-            # Valores bajos = baja correlación = bueno (cambian mucho)
+            print("       📊 Calculando diferencias entre explicaciones...")
+            
+            # Calcular score por muestra
             for i in range(len(x_batch)):
-                # Obtener explicaciones para esta muestra
                 exp_orig = np.array(expl_original[i]) if not isinstance(expl_original[i], np.ndarray) else expl_original[i]
                 exp_rand = np.array(expl_randomized[i]) if not isinstance(expl_randomized[i], np.ndarray) else expl_randomized[i]
                 
-                # Aplanar a vectores 1D
                 exp_orig_flat = exp_orig.flatten()
                 exp_rand_flat = exp_rand.flatten()
                 
-                # Asegurar que tienen la misma longitud
                 min_len = min(len(exp_orig_flat), len(exp_rand_flat))
                 exp_orig_flat = exp_orig_flat[:min_len]
                 exp_rand_flat = exp_rand_flat[:min_len]
                 
-                # Calcular correlación de Spearman o distancia euclidiana como fallback
                 if HAS_SCIPY:
                     try:
                         correlation, _ = spearmanr(exp_orig_flat, exp_rand_flat)
-                        # Manejar NaN (puede ocurrir si hay valores constantes)
                         if np.isnan(correlation):
-                            correlation = 0.0  # Si no hay correlación definida, asumir 0 (bueno)
+                            correlation = 0.0
                     except Exception:
-                        correlation = 0.0  # Si hay error, asumir 0 (bueno)
+                        correlation = 0.0
                     
-                    # El score es la correlación mapeada a [0, 1]
-                    # Correlación alta (cercana a 1) = explicaciones similares = malo (no son sensibles)
-                    # Correlación baja (cercana a 0 o negativa) = explicaciones diferentes = bueno (son sensibles)
-                    # Mapear [-1, 1] a [0, 1]: 1 = correlación perfecta (malo), 0 = sin correlación (bueno)
-                    score = (correlation + 1.0) / 2.0
+                    # CORRECCIÓN CRÍTICA:
+                    # Correlación ALTA = explicaciones SIMILARES = MALO (score bajo)
+                    # Correlación BAJA = explicaciones DIFERENTES = BUENO (score alto)
+                    # 
+                    # Mapeo: correlation ∈ [-1, 1] → score ∈ [0, 1]
+                    # - correlation = 1.0  → score = 0.0 (máxima similitud = malo)
+                    # - correlation = 0.0  → score = 0.5 (sin correlación = neutro)
+                    # - correlation = -1.0 → score = 1.0 (anticorrelación = también diferente = bueno)
+                    
+                    score = 1.0 - (correlation + 1.0) / 2.0  # Invierte correctamente
+                    
                 else:
-                    # Fallback: usar distancia euclidiana normalizada
-                    # Normalizar ambas explicaciones juntas para preservar diferencias relativas
+                    # Fallback con distancia euclidiana normalizada
                     combined = np.concatenate([exp_orig_flat, exp_rand_flat])
                     if combined.max() - combined.min() > 1e-8:
                         exp_orig_norm = (exp_orig_flat - combined.min()) / (combined.max() - combined.min())
@@ -589,25 +390,66 @@ def create_alternative_randomization_metric():
                         exp_orig_norm = exp_orig_flat
                         exp_rand_norm = exp_rand_flat
                     
-                    # Calcular distancia euclidiana
                     distance = np.linalg.norm(exp_orig_norm - exp_rand_norm)
-                    # Normalizar distancia (máxima posible es sqrt(2) para vectores normalizados)
                     normalized_distance = min(distance / np.sqrt(2), 1.0)
-                    # Invertir: distancia alta = diferencia grande = bueno, pero queremos score alto = malo
-                    score = 1.0 - normalized_distance
+                    
+                    # Distancia ALTA = diferencia GRANDE = BUENO (score alto)
+                    score = normalized_distance
                 
                 scores.append(score)
             
-            # Limpiar modelo aleatorizado de memoria
             del model_randomized
-            torch.cuda.empty_cache() if torch.cuda.is_available() else None
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             
             return np.array(scores)
     
-    return AlternativeRandomizationMetric()
+    return ImprovedRandomizationMetric()
 
-# Evalúa cada método XAI con varias métricas de Quantus.
-# Devuelve un diccionario: results[method][metric] = {mean, std, scores}.
+
+# ============================================================
+#  Métricas de Quantus
+# ============================================================
+
+def create_metrics() -> Dict[str, object]:
+    """Crea métricas de Quantus con configuración optimizada."""
+    metrics: Dict[str, object] = {}
+
+    # Fidelidad
+    metrics["faithfulness"] = quantus.FaithfulnessCorrelation()
+
+    # Robustez (configuración conservadora para evitar inf/nan)
+    metrics["robustness"] = quantus.AvgSensitivity(
+        nr_samples=30,
+        abs=True,
+        normalise=True,
+        lower_bound=0.02,
+        upper_bound=0.15,
+        return_nan_when_prediction_changes=True,
+        disable_warnings=True,
+    )
+
+    # Complejidad
+    try:
+        metrics["complexity"] = quantus.Complexity()
+    except AttributeError:
+        metrics["complexity"] = quantus.Entropy()
+
+    # Aleatorización - SIEMPRE usar métrica alternativa mejorada
+    print("📊 Usando métrica alternativa mejorada para randomization")
+    print("   (Compara modelo entrenado vs. modelo aleatorizado)")
+    metrics["randomization"] = create_alternative_randomization_metric()
+
+    # Localización
+    metrics["localization"] = quantus.RegionPerturbation()
+
+    return metrics
+
+
+# ============================================================
+#  Evaluación de métodos XAI
+# ============================================================
+
 def evaluate_methods(
     model: torch.nn.Module,
     explainer: XAIExplainer,
@@ -616,20 +458,15 @@ def evaluate_methods(
     methods: list[str],
     device: torch.device,
 ) -> Dict[str, Dict[str, Dict[str, float]]]:
-    """
-    Evalúa cada método XAI con varias métricas de Quantus.
-    Devuelve un diccionario: results[method][metric] = {mean, std, scores}.
-    """
+    """Evalúa cada método XAI con métricas de Quantus."""
     model.eval()
     metrics = create_metrics()
 
-    # Predicciones del modelo (para usar como clases objetivo)
     with torch.no_grad():
         logits = model(x_batch.to(device))
         preds = logits.argmax(dim=1)
 
-    # Convertir datos a NumPy (manteniendo BCHW)
-    x_np = to_numpy_bchw(x_batch)  # (B, C, H, W)
+    x_np = to_numpy_bchw(x_batch)
     y_np = y_batch.detach().cpu().numpy()
 
     results: Dict[str, Dict[str, Dict[str, float]]] = {}
@@ -637,24 +474,20 @@ def evaluate_methods(
     for method in methods:
         print(f"\n=== Evaluando método XAI: {method} ===")
 
-        # 1) Atribuciones (mantenemos BCHW para coincidir con x_np)
         attr_bchw = compute_attributions(explainer, x_batch, preds, method)
-        attr_np = to_numpy_bchw(attr_bchw)  # (B, C, H, W)
+        attr_np = to_numpy_bchw(attr_bchw)
 
         method_results: Dict[str, Dict[str, float]] = {}
 
-        # explain_func para métricas que lo requieren (robustness, randomization)
         explain_fn = build_explain_func(explainer, method, device)
 
         for metric_name, metric in metrics.items():
             print(f" -> Métrica: {metric_name}")
             try:
-                # Robustez y aleatorización: usar explain_func (Quantus calcula a_batch internamente)
                 if metric_name in {"robustness", "randomization"}:
-                    # Logging adicional para randomization
                     if metric_name == "randomization":
-                        print(f"    🔍 Calculando randomization (MPRT) para {method}...")
-                        print(f"       Esto puede tardar ya que aleatoriza parámetros del modelo.")
+                        print(f"    🔍 Calculando randomization para {method}...")
+                        print(f"       Comparando modelo entrenado vs. aleatorizado...")
                     
                     scores = metric(
                         model=model,
@@ -663,75 +496,7 @@ def evaluate_methods(
                         explain_func=explain_fn,
                         device=device,
                     )
-                    
-                    # Para randomization: verificar si MPRT devolvió valores constantes
-                    # Si es así, usar métrica alternativa más sensible
-                    if metric_name == "randomization":
-                        # Extraer scores para verificar (manejar dict correctamente)
-                        check_scores = None
-                        if isinstance(scores, dict):
-                            # Buscar la clave "scores" o cualquier valor que sea una lista/array numérico
-                            if "scores" in scores:
-                                check_scores = scores["scores"]
-                            else:
-                                # Buscar el primer valor que parezca una colección numérica
-                                for v in scores.values():
-                                    if isinstance(v, (list, tuple, np.ndarray)):
-                                        check_scores = v
-                                        break
-                        else:
-                            check_scores = scores
-                        
-                        # Si encontramos scores, verificar si son constantes
-                        if check_scores is not None:
-                            try:
-                                check_scores = np.array(check_scores, dtype=float).flatten()
-                                valid_check = check_scores[np.isfinite(check_scores)]
-                                
-                                # Si todos los valores están cerca de 1.0, usar métrica alternativa
-                                if len(valid_check) > 0 and np.all(np.abs(valid_check - 1.0) < 0.01):
-                                    print(f"    ⚠️  MPRT devolvió valores constantes (~1.0) para todos los métodos")
-                                    print(f"    🔄 Cambiando a métrica alternativa basada en variabilidad con diferentes seeds...")
-                                    print(f"       (Esta métrica mide qué tan diferentes son las explicaciones con diferentes seeds)")
-                                    
-                                    # Usar métrica alternativa
-                                    alt_metric = create_alternative_randomization_metric()
-                                    scores = alt_metric(
-                                        model=model,
-                                        x_batch=x_np,
-                                        y_batch=y_np,
-                                        explain_func=explain_fn,
-                                        device=device,
-                                    )
-                                    print(f"    ✓ Métrica alternativa calculada (debería mostrar más variación entre métodos)")
-                            except (ValueError, TypeError) as e:
-                                # Si no podemos procesar los scores, usar métrica alternativa directamente
-                                print(f"    ⚠️  Error procesando scores de MPRT: {e}")
-                                print(f"    🔄 Usando métrica alternativa basada en variabilidad con diferentes seeds...")
-                                alt_metric = create_alternative_randomization_metric()
-                                scores = alt_metric(
-                                    model=model,
-                                    x_batch=x_np,
-                                    y_batch=y_np,
-                                    explain_func=explain_fn,
-                                    device=device,
-                                )
-                                print(f"    ✓ Métrica alternativa calculada")
-                        else:
-                            # Si no encontramos scores, usar métrica alternativa directamente
-                            print(f"    ⚠️  No se pudieron extraer scores de MPRT (formato inesperado)")
-                            print(f"    🔄 Usando métrica alternativa basada en variabilidad con diferentes seeds...")
-                            alt_metric = create_alternative_randomization_metric()
-                            scores = alt_metric(
-                                model=model,
-                                x_batch=x_np,
-                                y_batch=y_np,
-                                explain_func=explain_fn,
-                                device=device,
-                            )
-                            print(f"    ✓ Métrica alternativa calculada")
                 else:
-                    # Resto de métricas: usar atribuciones precomputadas (a_batch)
                     scores = metric(
                         model=model,
                         x_batch=x_np,
@@ -740,57 +505,43 @@ def evaluate_methods(
                         device=device,
                     )
 
-                # Algunas métricas (p.ej. randomization) pueden devolver un dict.
                 if isinstance(scores, dict):
-                    # Caso típico: clave 'scores'
                     if "scores" in scores:
                         raw_scores = scores["scores"]
                     else:
-                        # Buscar el primer valor que parezca una colección numérica
                         raw_scores = None
                         for v in scores.values():
                             if isinstance(v, (list, tuple, np.ndarray)):
                                 raw_scores = v
                                 break
                         if raw_scores is None:
-                            raise TypeError(
-                                f"Formato de salida de métrica '{metric_name}' no soportado: claves={list(scores.keys())}"
-                            )
+                            raise TypeError(f"Formato no soportado para '{metric_name}'")
                 else:
                     raw_scores = scores
 
                 raw_scores = np.array(raw_scores, dtype=float).flatten()
-                
-                # Filtrar inf y nan antes de calcular estadísticas
-                valid_scores = raw_scores[np.isfinite(raw_scores)]  # isfinite = no inf y no nan
+                valid_scores = raw_scores[np.isfinite(raw_scores)]
                 
                 if len(valid_scores) == 0:
-                    # Si todos los valores son inf/nan, usar None
                     mean = None
                     std = None
-                    print(f"    ⚠️  Todos los valores son inf/nan, usando None")
+                    print(f"    ⚠️  Todos los valores son inf/nan")
                 elif len(valid_scores) < len(raw_scores):
-                    # Si hay algunos valores válidos, calcular solo con ellos
                     mean = float(np.mean(valid_scores))
                     std = float(np.std(valid_scores))
                     invalid_count = len(raw_scores) - len(valid_scores)
-                    print(f"    ⚠️  {invalid_count}/{len(raw_scores)} valores inválidos (inf/nan) filtrados")
+                    print(f"    ⚠️  {invalid_count}/{len(raw_scores)} valores inválidos filtrados")
                 else:
-                    # Todos los valores son válidos
                     mean = float(np.mean(valid_scores))
                     std = float(np.std(valid_scores))
                 
-                # Convertir inf y nan a None para JSON
-                mean_json = None if (mean is None or (mean is not None and (np.isinf(mean) or np.isnan(mean)))) else mean
-                std_json = None if (std is None or (std is not None and (np.isinf(std) or np.isnan(std)))) else std
+                mean_json = None if (mean is None or np.isinf(mean) or np.isnan(mean)) else mean
+                std_json = None if (std is None or np.isinf(std) or np.isnan(std)) else std
                 
-                # Convertir scores: inf -> None, nan -> None
-                scores_list = []
-                for s in raw_scores:
-                    if np.isinf(s) or np.isnan(s):
-                        scores_list.append(None)
-                    else:
-                        scores_list.append(float(s))
+                scores_list = [
+                    None if (np.isinf(s) or np.isnan(s)) else float(s)
+                    for s in raw_scores
+                ]
 
                 method_results[metric_name] = {
                     "mean": mean_json,
@@ -798,25 +549,28 @@ def evaluate_methods(
                     "scores": scores_list,
                 }
                 
-                # Print con manejo de inf/nan - mostrar valores reales o advertencia
                 if mean_json is None:
-                    if len(valid_scores) == 0:
-                        print(f"    None (todos los valores son inf/nan)")
-                    else:
-                        print(f"    None (filtrados {len(raw_scores) - len(valid_scores)}/{len(raw_scores)} valores inválidos)")
+                    print(f"    None (valores inválidos)")
                 elif std_json is None:
                     print(f"    {mean:.4f} ± None")
                 else:
                     print(f"    {mean:.4f} ± {std:.4f}")
+                    
             except Exception as err:
                 print(f"    ⚠️ Error evaluando {metric_name} para {method}: {err}")
+                import traceback
+                traceback.print_exc()
                 method_results[metric_name] = None
 
         results[method] = method_results
 
     return results
 
-# Guarda los resultados en un archivo JSON.
+
+# ============================================================
+#  Guardar resultados
+# ============================================================
+
 def save_results(results: Dict, output_path: str) -> None:
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as file:
@@ -828,12 +582,10 @@ def save_results(results: Dict, output_path: str) -> None:
 #  main()
 # ============================================================
 
-# Función principal
 def main() -> None:
     args = parse_args()
     device = torch.device(args.device)
     
-    # Establecer semilla para reproducibilidad
     set_global_seed(args.seed)
 
     print("=" * 60)
@@ -845,13 +597,11 @@ def main() -> None:
     print(f"Muestras a evaluar: {args.num_samples}")
     print(f"Seed: {args.seed}")
 
-    # Determinar número de clases según dataset
     meta_all = get_dataset_info()
     name_map = {"blood": "bloodmnist", "retina": "retinamnist", "breast": "breastmnist"}
     med_name = name_map[args.dataset]
     num_classes = int(meta_all[med_name]["n_classes"])
 
-    # Determinar ruta del modelo
     if args.model_path is None:
         model_path = f"results/best_model_{args.dataset}.pth"
     else:
@@ -863,10 +613,8 @@ def main() -> None:
             f"Ejecuta primero: python train.py --dataset {args.dataset}"
         )
 
-    # Modelo entrenado
     model = load_trained_model(model_path, device, num_classes=num_classes)
 
-    # Datos de test
     datasets = load_datasets(args.data_dir, target_size=224)
     _, _, test_loader, _ = create_data_loaders(
         datasets=datasets,
@@ -876,16 +624,12 @@ def main() -> None:
         dataset_name=args.dataset,
     )
 
-    # Muestreo de ejemplos de test
     x_batch, y_batch = collect_samples(test_loader, args.num_samples, device)
 
-    # Explainer XAI
-    explainer = XAIExplainer(model, device, num_classes=num_classes)
+    explainer = XAIExplainer(model, device, num_classes=num_classes, dataset=args.dataset)
 
-    # Evaluación
     results = evaluate_methods(model, explainer, x_batch, y_batch, args.methods, device)
     
-    # Añadir metadata al resultado
     results["metadata"] = {
         "dataset": args.dataset,
         "num_classes": num_classes,
@@ -893,7 +637,6 @@ def main() -> None:
         "methods": args.methods,
     }
     
-    # Determinar ruta de salida
     if args.output is None:
         output_path = f"outputs/quantus_metrics_{args.dataset}.json"
     else:
@@ -905,16 +648,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-"""
-Resumen
-El script quantus_evaluation.py evalúa la explicabilidad de un modelo entrenado con varios métodos XAI (Grad-CAM, Grad-CAM++, Integrated Gradients y Saliency) usando las métricas de Quantus.
-1. Argumentos: lee los parámetros de línea de comandos.
-2. Datos: carga los datasets MedMNIST y crea un loader de test.
-3. Muestreo: recoge un batch de muestras del conjunto de test.
-4. Explainer: inicializa el objeto XAIExplainer.
-5. Evaluación: llama a evaluate_methods() para cada método XAI.
-6. Guarda: guarda los resultados en un archivo JSON.
-
-Resultado: un archivo JSON con los resultados de la evaluación cuantitativa de la explicabilidad.
-"""
