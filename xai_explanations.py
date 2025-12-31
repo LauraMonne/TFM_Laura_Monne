@@ -112,13 +112,21 @@ def _denormalize_image(
 # Inicializa el modelo, las capas target y los métodos Captum si están disponibles.
 
 class XAIExplainer:
-    def __init__(self, model: nn.Module, device: torch.device, num_classes: int = 15, dataset: str = "blood"):
+    def __init__(
+        self,
+        model: nn.Module,
+        device: torch.device,
+        num_classes: int = 15,
+        dataset: str = "blood",
+        create_dirs: bool = True,
+    ):
         self.model = model.to(device)
         self.model.eval()
         self.device = device
         self.num_classes = num_classes
         self.dataset = dataset
-        _ensure_dirs(dataset)
+        if create_dirs:
+            _ensure_dirs(dataset)
 
         # Métodos Captum
         if CAPTUM_AVAILABLE:

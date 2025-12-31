@@ -15,6 +15,7 @@ Uso típico:
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import os
 from typing import Dict, List, Callable
@@ -69,6 +70,18 @@ def parse_args() -> argparse.Namespace:
         help="Número de muestras del set de test a evaluar.",
     )
     parser.add_argument(
+        "--sample_strategy",
+        choices=["first", "reservoir"],
+        default="reservoir",
+        help="Estrategia de muestreo del test: first (primeras N) o reservoir (aleatorio uniforme).",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Semilla para muestreo aleatorio (solo si sample_strategy=reservoir).",
+    )
+    parser.add_argument(
         "--batch_size",
         type=int,
         default=1,
@@ -86,6 +99,12 @@ def parse_args() -> argparse.Namespace:
         help="Métodos XAI a evaluar (gradcam, gradcampp, integrated_gradients, saliency).",
     )
     parser.add_argument(
+        "--target",
+        choices=["pred", "true"],
+        default="pred",
+        help="Clases objetivo para métricas XAI: pred (predicha por el modelo) o true (etiqueta real).",
+    )
+    parser.add_argument(
         "--output",
         type=str,
         default=None,
@@ -101,20 +120,54 @@ def parse_args() -> argparse.Namespace:
 # Recopila muestras del conjunto de test.
 # Devuelve un tensor BCHW (batch, channels, height, width).
 # y un tensor BHWC (batch, height, width, channels).
-def collect_samples(test_loader, num_samples: int, device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
-    """Recopila x_batch, y_batch del conjunto de test."""
+def collect_samples(
+    test_loader,
+    num_samples: int,
+    device: torch.device,
+    sample_strategy: str = "reservoir",
+    seed: int = 42,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Recopila x_batch, y_batch del conjunto de test.
+
+    - first: toma las primeras N muestras en orden.
+    - reservoir: muestreo aleatorio uniforme sobre todo el test (requiere recorrerlo completo).
+    """
     xs: List[torch.Tensor] = []
     ys: List[torch.Tensor] = []
+    seen = 0
+    rng = np.random.default_rng(seed)
+
     with torch.no_grad():
-        for idx, (data, target) in enumerate(tqdm(test_loader, desc="Recolectando muestras")):
-            if idx >= num_samples:
+        for _, (data, target) in enumerate(tqdm(test_loader, desc="Recolectando muestras")):
+            bsz = data.shape[0]
+            for i in range(bsz):
+                seen += 1
+                sample_x = data[i : i + 1].cpu()
+                sample_y = target[i : i + 1].cpu()
+
+                if sample_strategy == "first":
+                    if len(xs) < num_samples:
+                        xs.append(sample_x)
+                        ys.append(sample_y)
+                    if len(xs) >= num_samples:
+                        break
+                else:
+                    if len(xs) < num_samples:
+                        xs.append(sample_x)
+                        ys.append(sample_y)
+                    else:
+                        j = rng.integers(0, seen)
+                        if j < num_samples:
+                            xs[j] = sample_x
+                            ys[j] = sample_y
+            if sample_strategy == "first" and len(xs) >= num_samples:
                 break
-            xs.append(data)
-            ys.append(target)
+
     if not xs:
         raise RuntimeError("No se encontraron muestras. Ajusta num_samples.")
+
     x_batch = torch.cat(xs, dim=0).to(device)
-    y_batch = torch.cat(ys, dim=0).to(device)
+    y_batch = torch.cat(ys, dim=0).to(device).view(-1)
     return x_batch, y_batch
 
 # Convierte un tensor BCHW a BHWC para Quantus.
@@ -140,7 +193,7 @@ def expand_heatmap_to_channels(heatmap: np.ndarray, channels: int) -> torch.Tens
 def compute_attributions(
     explainer: XAIExplainer,
     x_batch: torch.Tensor,
-    preds: torch.Tensor,
+    targets: torch.Tensor,
     method: str,
 ) -> torch.Tensor:
     """
@@ -150,7 +203,7 @@ def compute_attributions(
     attributions: List[torch.Tensor] = []
     for idx in tqdm(range(len(x_batch)), desc=f"Atribuciones {method}"):
         sample = x_batch[idx : idx + 1]
-        target_class = int(preds[idx].item())
+        target_class = int(targets[idx].item())
         try:
             if method == "gradcam":
                 result = explainer.generate_gradcam(sample, target_class, save_path=None)
@@ -189,16 +242,31 @@ def compute_attributions(
 
 
 def build_explain_func(
-    explainer: XAIExplainer,
     method: str,
     device: torch.device,
+    num_classes: int,
+    dataset: str,
 ) -> Callable:
     """
     Construye una explain_func compatible con Quantus.
     Firma esperada: explain_func(model, inputs, targets, **kwargs) -> np.ndarray
     """
+    explainer_cache: Dict[int, XAIExplainer] = {}
+
+    def get_explainer(model: torch.nn.Module) -> XAIExplainer:
+        key = id(model)
+        if key not in explainer_cache:
+            explainer_cache[key] = XAIExplainer(
+                model,
+                device=device,
+                num_classes=num_classes,
+                dataset=dataset,
+                create_dirs=False,
+            )
+        return explainer_cache[key]
 
     def explain_func(model, inputs, targets, **kwargs):
+        explainer = get_explainer(model)
         # inputs puede venir como np.ndarray o torch.Tensor, BCHW o BHWC
         if isinstance(inputs, np.ndarray):
             x = torch.tensor(inputs, dtype=torch.float32)
@@ -259,6 +327,15 @@ def build_explain_func(
 #  Métricas de Quantus
 # ============================================================
 
+# Inicializa métricas de Quantus con kwargs compatibles (según firma).
+def _init_metric(metric_cls, **kwargs):
+    try:
+        sig = inspect.signature(metric_cls)
+        filtered = {k: v for k, v in kwargs.items() if k in sig.parameters}
+        return metric_cls(**filtered)
+    except Exception:
+        return metric_cls()
+
 # Crea un conjunto estándar de métricas de Quantus.
 # Devuelve un diccionario con las métricas.
 def create_metrics() -> Dict[str, object]:
@@ -266,7 +343,14 @@ def create_metrics() -> Dict[str, object]:
     metrics: Dict[str, object] = {}
 
     # Fidelidad
-    metrics["faithfulness"] = quantus.FaithfulnessCorrelation()
+    metrics["faithfulness"] = _init_metric(
+        quantus.FaithfulnessCorrelation,
+        return_aggregate=False,
+        aggregate_func=None,
+        nr_runs=30,  # reducir coste computacional
+        subset_size=224,
+        disable_warnings=True,
+    )
 
     # Robustez
     # Configuración para evitar valores inf/nan:
@@ -298,10 +382,21 @@ def create_metrics() -> Dict[str, object]:
         RandomizationMetric = quantus.MPRT
     except AttributeError:
         RandomizationMetric = quantus.ModelParameterRandomisation
-    metrics["randomization"] = RandomizationMetric()
+    metrics["randomization"] = _init_metric(
+        RandomizationMetric,
+        skip_layers=True,  # solo comparar modelo original vs totalmente randomizado (mucho más rápido)
+        return_last_correlation=True,
+        layer_order="top_down",
+        seed=42,
+        disable_warnings=True,
+    )
 
     # Localización
-    metrics["localization"] = quantus.RegionPerturbation()
+    metrics["localization"] = _init_metric(
+        quantus.RegionPerturbation,
+        regions_evaluation=30,  # reducir coste computacional
+        disable_warnings=True,
+    )
 
     return metrics
 
@@ -314,6 +409,9 @@ def evaluate_methods(
     y_batch: torch.Tensor,
     methods: list[str],
     device: torch.device,
+    target_mode: str,
+    dataset: str,
+    num_classes: int,
 ) -> Dict[str, Dict[str, Dict[str, float]]]:
     """
     Evalúa cada método XAI con varias métricas de Quantus.
@@ -327,9 +425,14 @@ def evaluate_methods(
         logits = model(x_batch.to(device))
         preds = logits.argmax(dim=1)
 
+    if target_mode == "pred":
+        targets = preds
+    else:
+        targets = y_batch.view(-1)
+
     # Convertir datos a NumPy (manteniendo BCHW)
     x_np = to_numpy_bchw(x_batch)  # (B, C, H, W)
-    y_np = y_batch.detach().cpu().numpy()
+    y_np = targets.detach().cpu().numpy()
 
     results: Dict[str, Dict[str, Dict[str, float]]] = {}
 
@@ -337,13 +440,13 @@ def evaluate_methods(
         print(f"\n=== Evaluando método XAI: {method} ===")
 
         # 1) Atribuciones (mantenemos BCHW para coincidir con x_np)
-        attr_bchw = compute_attributions(explainer, x_batch, preds, method)
+        attr_bchw = compute_attributions(explainer, x_batch, targets, method)
         attr_np = to_numpy_bchw(attr_bchw)  # (B, C, H, W)
 
         method_results: Dict[str, Dict[str, float]] = {}
 
         # explain_func para métricas que lo requieren (robustness, randomization)
-        explain_fn = build_explain_func(explainer, method, device)
+        explain_fn = build_explain_func(method, device, num_classes=num_classes, dataset=dataset)
 
         for metric_name, metric in metrics.items():
             print(f" -> Métrica: {metric_name}")
@@ -467,6 +570,8 @@ def main() -> None:
     print(f"Dispositivo: {device}")
     print(f"Métodos: {args.methods}")
     print(f"Muestras a evaluar: {args.num_samples}")
+    print(f"Estrategia muestreo: {args.sample_strategy} (seed={args.seed})")
+    print(f"Target de métricas: {args.target}")
 
     # Determinar número de clases según dataset
     meta_all = get_dataset_info()
@@ -500,19 +605,44 @@ def main() -> None:
     )
 
     # Muestreo de ejemplos de test
-    x_batch, y_batch = collect_samples(test_loader, args.num_samples, device)
+    x_batch, y_batch = collect_samples(
+        test_loader,
+        args.num_samples,
+        device,
+        sample_strategy=args.sample_strategy,
+        seed=args.seed,
+    )
 
     # Explainer XAI
-    explainer = XAIExplainer(model, device, num_classes=num_classes)
+    explainer = XAIExplainer(
+        model,
+        device,
+        num_classes=num_classes,
+        dataset=args.dataset,
+        create_dirs=False,
+    )
 
     # Evaluación
-    results = evaluate_methods(model, explainer, x_batch, y_batch, args.methods, device)
+    results = evaluate_methods(
+        model,
+        explainer,
+        x_batch,
+        y_batch,
+        args.methods,
+        device,
+        target_mode=args.target,
+        dataset=args.dataset,
+        num_classes=num_classes,
+    )
     
     # Añadir metadata al resultado
     results["metadata"] = {
         "dataset": args.dataset,
         "num_classes": num_classes,
         "num_samples": args.num_samples,
+        "sample_strategy": args.sample_strategy,
+        "seed": args.seed,
+        "target": args.target,
         "methods": args.methods,
     }
     
