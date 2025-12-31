@@ -9,7 +9,7 @@ Mide 5 dimensiones para varios métodos XAI (Grad-CAM, Grad-CAM++, IG, Saliency)
 - Localización   -> RegionPerturbation
 
 Uso típico:
-    python quantus_evaluation.py --num_samples 30 --methods gradcam integrated_gradients saliency
+    python quantus_evaluation.py --dataset retina --num_samples 100 --seed 123
 """
 
 from __future__ import annotations
@@ -17,7 +17,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from typing import Dict, List, Callable
+import random
+from typing import Dict, List, Callable, Tuple
 
 import numpy as np
 import torch
@@ -33,6 +34,21 @@ except ImportError as exc:
 from prepare_data import load_datasets, get_dataset_info
 from train import create_data_loaders
 from xai_explanations import XAIExplainer, load_trained_model
+
+
+# ============================================================
+#  Reproducibilidad
+# ============================================================
+
+def set_global_seed(seed: int) -> None:
+    """Establece la semilla global para reproducibilidad."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    # Determinismo (puede reducir rendimiento)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 
 # ============================================================
@@ -91,6 +107,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Ruta de guardado para los resultados. Si no se especifica, usa outputs/quantus_metrics_{dataset}.json",
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=123,
+        help="Seed global para reproducibilidad.",
+    )
     return parser.parse_args()
 
 
@@ -121,6 +143,56 @@ def collect_samples(test_loader, num_samples: int, device: torch.device) -> tupl
 def to_numpy_bchw(tensor_batch: torch.Tensor) -> np.ndarray:
     """Convierte un tensor BCHW a NumPy BCHW (sin cambiar el orden de ejes)."""
     return tensor_batch.detach().cpu().numpy()
+
+
+# ============================================================
+#  Sanitización / normalización de atribuciones
+# ============================================================
+
+def sanitize_attribution(attr: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+    """
+    Sanitiza y normaliza atribuciones para mejorar estabilidad numérica.
+    
+    - Fuerza float32 para consistencia
+    - Reemplaza nan/inf por 0
+    - Normaliza por muestra a [0,1] (min-max) para evitar mapas constantes raros
+    
+    Args:
+        attr: Tensor de atribuciones (C, H, W) o (B, C, H, W)
+        eps: Tolerancia para detectar mapas constantes
+        
+    Returns:
+        Tensor sanitizado y normalizado
+    """
+    attr = attr.to(dtype=torch.float32)
+    attr = torch.nan_to_num(attr, nan=0.0, posinf=0.0, neginf=0.0)
+    
+    # Si todo es cero (mapa vacío), devolvemos tal cual
+    if torch.all(attr == 0):
+        return attr
+    
+    # Normalización min-max por tensor (C,H,W) o (B,C,H,W)
+    if attr.ndim == 3:  # (C, H, W)
+        mn = torch.min(attr)
+        mx = torch.max(attr)
+        if (mx - mn).abs() < eps:
+            # Mapa constante -> lo dejamos a ceros
+            return torch.zeros_like(attr)
+        attr = (attr - mn) / (mx - mn + eps)
+    elif attr.ndim == 4:  # (B, C, H, W) - normalizar por muestra
+        for b in range(attr.shape[0]):
+            sample = attr[b]
+            mn = torch.min(sample)
+            mx = torch.max(sample)
+            if (mx - mn).abs() < eps:
+                attr[b] = torch.zeros_like(sample)
+            else:
+                attr[b] = (sample - mn) / (mx - mn + eps)
+    else:
+        # Formato no soportado, devolver tal cual
+        return attr
+    
+    return attr
 
 
 # ============================================================
@@ -176,6 +248,9 @@ def compute_attributions(
                 attr = result[1][0].detach().cpu()  # (C, H, W)
             else:
                 raise ValueError(f"Método desconocido: {method}")
+            
+            # Sanitizar atribución antes de añadirla
+            attr = sanitize_attribution(attr)
         except Exception as err:
             print(f"⚠️ Error generando atribución para muestra {idx}: {err}")
             attr = torch.zeros_like(sample[0].cpu())
@@ -244,6 +319,9 @@ def build_explain_func(
                     attr = result[1][0].detach().cpu()
                 else:
                     raise ValueError(f"Método desconocido: {method}")
+                
+                # Sanitizar atribución antes de añadirla
+                attr = sanitize_attribution(attr)
             except Exception as err:
                 print(f"⚠️ Error en explain_func para muestra {i}: {err}")
                 attr = torch.zeros_like(sample[0].cpu())
@@ -294,14 +372,83 @@ def create_metrics() -> Dict[str, object]:
         metrics["complexity"] = quantus.Entropy()
 
     # Aleatorización (MPRT o ModelParameterRandomisation)
+    # MPRT mide cómo cambian las explicaciones cuando se aleatorizan los parámetros del modelo.
+    # Valores cercanos a 1.0 indican que las explicaciones no cambian (malo - explicaciones no son sensibles).
+    # Valores cercanos a 0.0 indican que las explicaciones cambian significativamente (bueno - explicaciones son sensibles).
+    # 
+    # PROBLEMA: Si todos los métodos obtienen ~1.0, puede ser que:
+    # 1. La métrica no esté aleatorizando correctamente los parámetros
+    # 2. Las explicaciones realmente no cambian cuando se aleatorizan parámetros (problema de los métodos XAI)
+    # 3. Hay un bug en cómo se está usando la métrica
+    #
+    # SOLUCIÓN: Probar diferentes configuraciones y métricas alternativas
     try:
         RandomizationMetric = quantus.MPRT
+        print("📊 Usando métrica MPRT para randomization")
     except AttributeError:
         RandomizationMetric = quantus.ModelParameterRandomisation
-    metrics["randomization"] = RandomizationMetric()
+        print("📊 Usando métrica ModelParameterRandomisation para randomization")
+    
+    # Intentar configurar con parámetros que ayuden a diferenciar métodos
+    randomization_metric = None
+    config_attempts = [
+        # Configuración 1: Con función de similitud explícita (correlación de Spearman)
+        {
+            "name": "correlación Spearman + normalización",
+            "params": {
+                "similarity_func": quantus.similarity_func.correlation_spearman,
+                "normalise": True,
+                "disable_warnings": True,
+            }
+        },
+        # Configuración 2: Con correlación de Pearson
+        {
+            "name": "correlación Pearson + normalización",
+            "params": {
+                "similarity_func": quantus.similarity_func.correlation_pearson,
+                "normalise": True,
+                "disable_warnings": True,
+            }
+        },
+        # Configuración 3: Solo normalización
+        {
+            "name": "solo normalización",
+            "params": {
+                "normalise": True,
+                "disable_warnings": True,
+            }
+        },
+        # Configuración 4: Por defecto
+        {
+            "name": "por defecto",
+            "params": {}
+        }
+    ]
+    
+    for attempt in config_attempts:
+        try:
+            randomization_metric = RandomizationMetric(**attempt["params"])
+            print(f"   ✓ Configuración exitosa: {attempt['name']}")
+            break
+        except (TypeError, AttributeError, KeyError) as e:
+            continue
+    
+    if randomization_metric is None:
+        # Si todas las configuraciones fallan, usar la más básica
+        print("   ⚠️  Todas las configuraciones fallaron, usando configuración mínima")
+        randomization_metric = RandomizationMetric()
+    
+    metrics["randomization"] = randomization_metric
 
     # Localización
     metrics["localization"] = quantus.RegionPerturbation()
+
+    # NOTA: Si MPRT sigue dando valores constantes (~1.0) para todos los métodos,
+    # se puede considerar usar métricas alternativas como:
+    # - quantus.RandomLogit: Mide la distancia entre explicación original y una clase aleatoria
+    # - Una métrica personalizada que compare explicaciones con diferentes seeds
+    # Sin embargo, MPRT es la métrica estándar para randomization, así que primero
+    # intentamos con las configuraciones mejoradas arriba.
 
     return metrics
 
@@ -350,6 +497,11 @@ def evaluate_methods(
             try:
                 # Robustez y aleatorización: usar explain_func (Quantus calcula a_batch internamente)
                 if metric_name in {"robustness", "randomization"}:
+                    # Logging adicional para randomization
+                    if metric_name == "randomization":
+                        print(f"    🔍 Calculando randomization (MPRT) para {method}...")
+                        print(f"       Esto puede tardar ya que aleatoriza parámetros del modelo.")
+                    
                     scores = metric(
                         model=model,
                         x_batch=x_np,
@@ -387,6 +539,20 @@ def evaluate_methods(
                     raw_scores = scores
 
                 raw_scores = np.array(raw_scores, dtype=float).flatten()
+                
+                # Detección especial para randomization: verificar si todos los valores son constantes
+                if metric_name == "randomization" and len(raw_scores) > 0:
+                    valid_for_check = raw_scores[np.isfinite(raw_scores)]
+                    if len(valid_for_check) > 0:
+                        # Verificar si todos los valores son muy cercanos a 1.0 (constantes)
+                        all_near_one = np.all(np.abs(valid_for_check - 1.0) < 0.01)
+                        if all_near_one:
+                            print(f"    ⚠️  ADVERTENCIA: Todos los valores de randomization están cerca de 1.0")
+                            print(f"       Esto indica que las explicaciones no cambian cuando se aleatorizan los parámetros.")
+                            print(f"       Posibles causas:")
+                            print(f"       1. Los métodos XAI no son sensibles a la aleatorización de parámetros")
+                            print(f"       2. La métrica MPRT no está funcionando correctamente")
+                            print(f"       3. El modelo es demasiado robusto a la aleatorización")
                 
                 # Filtrar inf y nan antes de calcular estadísticas
                 valid_scores = raw_scores[np.isfinite(raw_scores)]  # isfinite = no inf y no nan
@@ -459,6 +625,9 @@ def save_results(results: Dict, output_path: str) -> None:
 def main() -> None:
     args = parse_args()
     device = torch.device(args.device)
+    
+    # Establecer semilla para reproducibilidad
+    set_global_seed(args.seed)
 
     print("=" * 60)
     print("  EVALUACIÓN QUANTUS - RESNET18 XAI")
@@ -467,6 +636,7 @@ def main() -> None:
     print(f"Dispositivo: {device}")
     print(f"Métodos: {args.methods}")
     print(f"Muestras a evaluar: {args.num_samples}")
+    print(f"Seed: {args.seed}")
 
     # Determinar número de clases según dataset
     meta_all = get_dataset_info()
