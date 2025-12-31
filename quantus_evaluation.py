@@ -638,21 +638,60 @@ def evaluate_methods(
                     # Para randomization: verificar si MPRT devolvió valores constantes
                     # Si es así, usar métrica alternativa más sensible
                     if metric_name == "randomization":
-                        # Extraer scores para verificar
+                        # Extraer scores para verificar (manejar dict correctamente)
+                        check_scores = None
                         if isinstance(scores, dict):
-                            check_scores = scores.get("scores", scores)
+                            # Buscar la clave "scores" o cualquier valor que sea una lista/array numérico
+                            if "scores" in scores:
+                                check_scores = scores["scores"]
+                            else:
+                                # Buscar el primer valor que parezca una colección numérica
+                                for v in scores.values():
+                                    if isinstance(v, (list, tuple, np.ndarray)):
+                                        check_scores = v
+                                        break
                         else:
                             check_scores = scores
-                        check_scores = np.array(check_scores, dtype=float).flatten()
-                        valid_check = check_scores[np.isfinite(check_scores)]
                         
-                        # Si todos los valores están cerca de 1.0, usar métrica alternativa
-                        if len(valid_check) > 0 and np.all(np.abs(valid_check - 1.0) < 0.01):
-                            print(f"    ⚠️  MPRT devolvió valores constantes (~1.0) para todos los métodos")
-                            print(f"    🔄 Cambiando a métrica alternativa basada en variabilidad con diferentes seeds...")
-                            print(f"       (Esta métrica mide qué tan diferentes son las explicaciones con diferentes seeds)")
-                            
-                            # Usar métrica alternativa
+                        # Si encontramos scores, verificar si son constantes
+                        if check_scores is not None:
+                            try:
+                                check_scores = np.array(check_scores, dtype=float).flatten()
+                                valid_check = check_scores[np.isfinite(check_scores)]
+                                
+                                # Si todos los valores están cerca de 1.0, usar métrica alternativa
+                                if len(valid_check) > 0 and np.all(np.abs(valid_check - 1.0) < 0.01):
+                                    print(f"    ⚠️  MPRT devolvió valores constantes (~1.0) para todos los métodos")
+                                    print(f"    🔄 Cambiando a métrica alternativa basada en variabilidad con diferentes seeds...")
+                                    print(f"       (Esta métrica mide qué tan diferentes son las explicaciones con diferentes seeds)")
+                                    
+                                    # Usar métrica alternativa
+                                    alt_metric = create_alternative_randomization_metric()
+                                    scores = alt_metric(
+                                        model=model,
+                                        x_batch=x_np,
+                                        y_batch=y_np,
+                                        explain_func=explain_fn,
+                                        device=device,
+                                    )
+                                    print(f"    ✓ Métrica alternativa calculada (debería mostrar más variación entre métodos)")
+                            except (ValueError, TypeError) as e:
+                                # Si no podemos procesar los scores, usar métrica alternativa directamente
+                                print(f"    ⚠️  Error procesando scores de MPRT: {e}")
+                                print(f"    🔄 Usando métrica alternativa basada en variabilidad con diferentes seeds...")
+                                alt_metric = create_alternative_randomization_metric()
+                                scores = alt_metric(
+                                    model=model,
+                                    x_batch=x_np,
+                                    y_batch=y_np,
+                                    explain_func=explain_fn,
+                                    device=device,
+                                )
+                                print(f"    ✓ Métrica alternativa calculada")
+                        else:
+                            # Si no encontramos scores, usar métrica alternativa directamente
+                            print(f"    ⚠️  No se pudieron extraer scores de MPRT (formato inesperado)")
+                            print(f"    🔄 Usando métrica alternativa basada en variabilidad con diferentes seeds...")
                             alt_metric = create_alternative_randomization_metric()
                             scores = alt_metric(
                                 model=model,
@@ -661,7 +700,7 @@ def evaluate_methods(
                                 explain_func=explain_fn,
                                 device=device,
                             )
-                            print(f"    ✓ Métrica alternativa calculada (debería mostrar más variación entre métodos)")
+                            print(f"    ✓ Métrica alternativa calculada")
                 else:
                     # Resto de métricas: usar atribuciones precomputadas (a_batch)
                     scores = metric(
