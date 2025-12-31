@@ -1,5 +1,5 @@
 """
-Evaluación cuantitativa de explicabilidad usando Quantus.
+Evaluación cuantitativa de explicabilidad usando Quantus - VERSIÓN CORREGIDA
 
 Mide 5 dimensiones para varios métodos XAI (Grad-CAM, Grad-CAM++, IG, Saliency):
 - Fidelidad      -> FaithfulnessCorrelation
@@ -7,7 +7,6 @@ Mide 5 dimensiones para varios métodos XAI (Grad-CAM, Grad-CAM++, IG, Saliency)
 - Complejidad    -> Complexity (o Entropy)
 - Aleatorización -> MPRT / ModelParameterRandomisation (con métrica alternativa mejorada)
 - Localización   -> RegionPerturbation
-
 """
 
 from __future__ import annotations
@@ -39,6 +38,15 @@ except ImportError as exc:
 from prepare_data import load_datasets, get_dataset_info
 from train import create_data_loaders
 from xai_explanations import XAIExplainer, load_trained_model
+
+# Importar Captum para recrear explicadores
+try:
+    from captum.attr import IntegratedGradients, Saliency
+    CAPTUM_AVAILABLE = True
+except ImportError:
+    CAPTUM_AVAILABLE = False
+    IntegratedGradients = None
+    Saliency = None
 
 
 # ============================================================
@@ -236,17 +244,38 @@ def compute_attributions(
 
 
 # ============================================================
-#  explain_func para Quantus
+#  explain_func para Quantus - VERSIÓN MEJORADA
 # ============================================================
 
 def build_explain_func(
-    explainer: XAIExplainer,
+    base_explainer: XAIExplainer,
     method: str,
     device: torch.device,
+    model_override=None,  # NUEVO: permite pasar un modelo específico
 ) -> Callable:
-    """Construye explain_func compatible con Quantus."""
+    """Construye explain_func compatible con Quantus - VERSIÓN CORREGIDA."""
 
     def explain_func(model, inputs, targets, **kwargs):
+        # CORRECCIÓN CRÍTICA: Usar model_override si está disponible
+        actual_model = model_override if model_override is not None else model
+        
+        # Crear un explainer temporal con el modelo correcto
+        num_classes = base_explainer.num_classes
+        dataset_name = base_explainer.dataset
+        
+        # IMPORTANTE: Crear explainer temporal que use el modelo correcto
+        temp_explainer = XAIExplainer(actual_model, device, num_classes, dataset_name)
+        
+        # Forzar actualización del modelo en métodos Captum
+        if CAPTUM_AVAILABLE:
+            try:
+                if IntegratedGradients is not None:
+                    temp_explainer.ig = IntegratedGradients(actual_model)
+                if Saliency is not None:
+                    temp_explainer.saliency = Saliency(actual_model)
+            except Exception as e:
+                print(f"⚠️ Error reinicializando Captum: {e}")
+        
         if isinstance(inputs, np.ndarray):
             x = torch.tensor(inputs, dtype=torch.float32)
         else:
@@ -268,24 +297,24 @@ def build_explain_func(
             target_class = int(y[i].item())
             try:
                 if method == "gradcam":
-                    result = explainer.generate_gradcam(sample, target_class, save_path=None)
+                    result = temp_explainer.generate_gradcam(sample, target_class, save_path=None)
                     if result is None:
                         raise RuntimeError("Grad-CAM retornó None")
                     _, heatmap = result
                     attr = expand_heatmap_to_channels(heatmap, sample.shape[1])
                 elif method == "gradcampp":
-                    result = explainer.generate_gradcampp(sample, target_class, save_path=None)
+                    result = temp_explainer.generate_gradcampp(sample, target_class, save_path=None)
                     if result is None:
                         raise RuntimeError("Grad-CAM++ retornó None")
                     _, heatmap = result
                     attr = expand_heatmap_to_channels(heatmap, sample.shape[1])
                 elif method == "integrated_gradients":
-                    result = explainer.generate_integrated_gradients(sample, target_class, save_path=None)
+                    result = temp_explainer.generate_integrated_gradients(sample, target_class, save_path=None)
                     if result is None:
                         raise RuntimeError("IG retornó None")
                     attr = result[1][0].detach().cpu()
                 elif method == "saliency":
-                    result = explainer.generate_saliency_map(sample, target_class, save_path=None)
+                    result = temp_explainer.generate_saliency_map(sample, target_class, save_path=None)
                     if result is None:
                         raise RuntimeError("Saliency retornó None")
                     attr = result[1][0].detach().cpu()
@@ -304,55 +333,70 @@ def build_explain_func(
 
 
 # ============================================================
-#  Métrica alternativa de Randomization (MEJORADA)
+#  Métrica alternativa de Randomization (MEJORADA Y CORREGIDA)
 # ============================================================
 
-def create_alternative_randomization_metric():
+def create_alternative_randomization_metric(base_explainer, method, device):
     """
-    Métrica alternativa mejorada que compara explicaciones del modelo entrenado
-    vs. un modelo con parámetros completamente aleatorizados.
+    Métrica alternativa mejorada - CORREGIDA para usar modelos correctos.
     
     INTERPRETACIÓN CORRECTA:
     - Score ALTO (cercano a 1.0) = explicaciones MUY DIFERENTES = BUENO
-      (el método es sensible al entrenamiento del modelo)
     - Score BAJO (cercano a 0.0) = explicaciones SIMILARES = MALO
-      (el método no depende del modelo, genera explicaciones aleatorias)
     """
     
     class ImprovedRandomizationMetric:
         def __init__(self):
-            pass
+            self.base_explainer = base_explainer
+            self.method = method
+            self.device = device
         
         def __call__(self, model, x_batch, y_batch, explain_func, **kwargs):
-            device = kwargs.get('device', next(model.parameters()).device)
             scores = []
             
             print("       🔄 Generando explicaciones con modelo entrenado...")
-            expl_original = explain_func(model, x_batch, y_batch)
+            # CORRECCIÓN: Crear explain_func con el modelo original
+            explain_func_original = build_explain_func(
+                self.base_explainer, 
+                self.method, 
+                self.device,
+                model_override=model  # Usar el modelo entrenado
+            )
+            expl_original = explain_func_original(model, x_batch, y_batch)
             
             print("       🎲 Creando modelo con parámetros aleatorizados...")
             model_randomized = copy.deepcopy(model)
             
-            # Aleatorizar TODOS los parámetros con inicialización más agresiva
+            # Aleatorizar TODOS los parámetros con mayor varianza
             with torch.no_grad():
-                for param in model_randomized.parameters():
+                for name, param in model_randomized.named_parameters():
                     if len(param.shape) >= 2:
-                        # Inicialización normal con std más alta para mayor diferencia
-                        torch.nn.init.normal_(param, mean=0.0, std=0.5)
+                        torch.nn.init.normal_(param, mean=0.0, std=1.0)
                     else:
-                        torch.nn.init.normal_(param, mean=0.0, std=0.1)
+                        torch.nn.init.normal_(param, mean=0.0, std=0.5)
             
             model_randomized.eval()
             
             print("       🔄 Generando explicaciones con modelo aleatorizado...")
-            expl_randomized = explain_func(model_randomized, x_batch, y_batch)
+            # CORRECCIÓN: Crear explain_func con el modelo aleatorizado
+            explain_func_random = build_explain_func(
+                self.base_explainer,
+                self.method,
+                self.device,
+                model_override=model_randomized  # Usar el modelo aleatorizado
+            )
+            expl_randomized = explain_func_random(model_randomized, x_batch, y_batch)
             
             print("       📊 Calculando diferencias entre explicaciones...")
             
+            # Verificar que las explicaciones son diferentes
+            diff_check = np.abs(expl_original - expl_randomized).mean()
+            print(f"       ℹ️  Diferencia promedio absoluta: {diff_check:.6f}")
+            
             # Calcular score por muestra
             for i in range(len(x_batch)):
-                exp_orig = np.array(expl_original[i]) if not isinstance(expl_original[i], np.ndarray) else expl_original[i]
-                exp_rand = np.array(expl_randomized[i]) if not isinstance(expl_randomized[i], np.ndarray) else expl_randomized[i]
+                exp_orig = np.array(expl_original[i])
+                exp_rand = np.array(expl_randomized[i])
                 
                 exp_orig_flat = exp_orig.flatten()
                 exp_rand_flat = exp_rand.flatten()
@@ -369,19 +413,11 @@ def create_alternative_randomization_metric():
                     except Exception:
                         correlation = 0.0
                     
-                    # CORRECCIÓN CRÍTICA:
-                    # Correlación ALTA = explicaciones SIMILARES = MALO (score bajo)
-                    # Correlación BAJA = explicaciones DIFERENTES = BUENO (score alto)
-                    # 
-                    # Mapeo: correlation ∈ [-1, 1] → score ∈ [0, 1]
-                    # - correlation = 1.0  → score = 0.0 (máxima similitud = malo)
-                    # - correlation = 0.0  → score = 0.5 (sin correlación = neutro)
-                    # - correlation = -1.0 → score = 1.0 (anticorrelación = también diferente = bueno)
-                    
-                    score = 1.0 - (correlation + 1.0) / 2.0  # Invierte correctamente
+                    # Score alto = baja correlación = bueno
+                    score = 1.0 - (correlation + 1.0) / 2.0
                     
                 else:
-                    # Fallback con distancia euclidiana normalizada
+                    # Fallback con distancia euclidiana
                     combined = np.concatenate([exp_orig_flat, exp_rand_flat])
                     if combined.max() - combined.min() > 1e-8:
                         exp_orig_norm = (exp_orig_flat - combined.min()) / (combined.max() - combined.min())
@@ -391,10 +427,7 @@ def create_alternative_randomization_metric():
                         exp_rand_norm = exp_rand_flat
                     
                     distance = np.linalg.norm(exp_orig_norm - exp_rand_norm)
-                    normalized_distance = min(distance / np.sqrt(2), 1.0)
-                    
-                    # Distancia ALTA = diferencia GRANDE = BUENO (score alto)
-                    score = normalized_distance
+                    score = min(distance / np.sqrt(2), 1.0)
                 
                 scores.append(score)
             
@@ -408,17 +441,17 @@ def create_alternative_randomization_metric():
 
 
 # ============================================================
-#  Métricas de Quantus
+#  Métricas de Quantus - VERSIÓN MEJORADA
 # ============================================================
 
-def create_metrics() -> Dict[str, object]:
+def create_metrics(explainer, method, device) -> Dict[str, object]:
     """Crea métricas de Quantus con configuración optimizada."""
     metrics: Dict[str, object] = {}
 
     # Fidelidad
     metrics["faithfulness"] = quantus.FaithfulnessCorrelation()
 
-    # Robustez (configuración conservadora para evitar inf/nan)
+    # Robustez
     metrics["robustness"] = quantus.AvgSensitivity(
         nr_samples=30,
         abs=True,
@@ -435,10 +468,12 @@ def create_metrics() -> Dict[str, object]:
     except AttributeError:
         metrics["complexity"] = quantus.Entropy()
 
-    # Aleatorización - SIEMPRE usar métrica alternativa mejorada
+    # Aleatorización - CORRECCIÓN: Pasar explainer, method y device
     print("📊 Usando métrica alternativa mejorada para randomization")
     print("   (Compara modelo entrenado vs. modelo aleatorizado)")
-    metrics["randomization"] = create_alternative_randomization_metric()
+    metrics["randomization"] = create_alternative_randomization_metric(
+        explainer, method, device
+    )
 
     # Localización
     metrics["localization"] = quantus.RegionPerturbation()
@@ -447,7 +482,7 @@ def create_metrics() -> Dict[str, object]:
 
 
 # ============================================================
-#  Evaluación de métodos XAI
+#  Evaluación de métodos XAI - VERSIÓN CORREGIDA
 # ============================================================
 
 def evaluate_methods(
@@ -460,7 +495,6 @@ def evaluate_methods(
 ) -> Dict[str, Dict[str, Dict[str, float]]]:
     """Evalúa cada método XAI con métricas de Quantus."""
     model.eval()
-    metrics = create_metrics()
 
     with torch.no_grad():
         logits = model(x_batch.to(device))
@@ -479,6 +513,8 @@ def evaluate_methods(
 
         method_results: Dict[str, Dict[str, float]] = {}
 
+        # CORRECCIÓN: Crear métricas específicas para este método
+        metrics = create_metrics(explainer, method, device)
         explain_fn = build_explain_func(explainer, method, device)
 
         for metric_name, metric in metrics.items():
@@ -589,7 +625,7 @@ def main() -> None:
     set_global_seed(args.seed)
 
     print("=" * 60)
-    print("  EVALUACIÓN QUANTUS - RESNET18 XAI")
+    print("  EVALUACIÓN QUANTUS - RESNET18 XAI (VERSIÓN CORREGIDA)")
     print("=" * 60)
     print(f"Dataset: {args.dataset}")
     print(f"Dispositivo: {device}")
