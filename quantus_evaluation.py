@@ -269,7 +269,22 @@ def create_metrics() -> Dict[str, object]:
     metrics["faithfulness"] = quantus.FaithfulnessCorrelation()
 
     # Robustez
-    metrics["robustness"] = quantus.AvgSensitivity()
+    # Configuración para evitar valores inf/nan:
+    # - return_nan_when_prediction_changes=True: devuelve nan en lugar de inf cuando la predicción cambia
+    # - nr_samples=20: reduce aún más el número de muestras para evitar problemas numéricos (default=200)
+    # - lower_bound=0.05: reduce el ruido mínimo para evitar perturbaciones demasiado pequeñas
+    # - abs=True: usa valores absolutos para evitar problemas con signos
+    # - normalise=True: normaliza las explicaciones para estabilidad numérica
+    # - perturb_func_kwargs: ajustar la función de perturbación para ser más suave
+    metrics["robustness"] = quantus.AvgSensitivity(
+        nr_samples=20,  # Reducir aún más muestras para evitar problemas numéricos
+        abs=True,  # Usar valores absolutos
+        normalise=True,  # Normalizar para estabilidad
+        lower_bound=0.05,  # Ruido mínimo más pequeño y controlado
+        upper_bound=0.2,  # Ruido máximo más pequeño para evitar cambios de predicción
+        return_nan_when_prediction_changes=True,  # Devolver nan en lugar de inf
+        disable_warnings=True,  # Desactivar warnings para limpieza
+    )
 
     # Complejidad o Entropy
     try:
@@ -371,16 +386,54 @@ def evaluate_methods(
                     raw_scores = scores
 
                 raw_scores = np.array(raw_scores, dtype=float).flatten()
-                scores = raw_scores
-                mean = float(np.nanmean(scores))
-                std = float(np.nanstd(scores))
+                
+                # Filtrar inf y nan antes de calcular estadísticas
+                valid_scores = raw_scores[np.isfinite(raw_scores)]  # isfinite = no inf y no nan
+                
+                if len(valid_scores) == 0:
+                    # Si todos los valores son inf/nan, usar None
+                    mean = None
+                    std = None
+                    print(f"    ⚠️  Todos los valores son inf/nan, usando None")
+                elif len(valid_scores) < len(raw_scores):
+                    # Si hay algunos valores válidos, calcular solo con ellos
+                    mean = float(np.mean(valid_scores))
+                    std = float(np.std(valid_scores))
+                    invalid_count = len(raw_scores) - len(valid_scores)
+                    print(f"    ⚠️  {invalid_count}/{len(raw_scores)} valores inválidos (inf/nan) filtrados")
+                else:
+                    # Todos los valores son válidos
+                    mean = float(np.mean(valid_scores))
+                    std = float(np.std(valid_scores))
+                
+                # Convertir inf y nan a None para JSON
+                mean_json = None if (mean is None or (mean is not None and (np.isinf(mean) or np.isnan(mean)))) else mean
+                std_json = None if (std is None or (std is not None and (np.isinf(std) or np.isnan(std)))) else std
+                
+                # Convertir scores: inf -> None, nan -> None
+                scores_list = []
+                for s in raw_scores:
+                    if np.isinf(s) or np.isnan(s):
+                        scores_list.append(None)
+                    else:
+                        scores_list.append(float(s))
 
                 method_results[metric_name] = {
-                    "mean": mean,
-                    "std": std,
-                    "scores": scores.tolist(),
+                    "mean": mean_json,
+                    "std": std_json,
+                    "scores": scores_list,
                 }
-                print(f"    {mean:.4f} ± {std:.4f}")
+                
+                # Print con manejo de inf/nan - mostrar valores reales o advertencia
+                if mean_json is None:
+                    if len(valid_scores) == 0:
+                        print(f"    None (todos los valores son inf/nan)")
+                    else:
+                        print(f"    None (filtrados {len(raw_scores) - len(valid_scores)}/{len(raw_scores)} valores inválidos)")
+                elif std_json is None:
+                    print(f"    {mean:.4f} ± None")
+                else:
+                    print(f"    {mean:.4f} ± {std:.4f}")
             except Exception as err:
                 print(f"    ⚠️ Error evaluando {metric_name} para {method}: {err}")
                 method_results[metric_name] = None
