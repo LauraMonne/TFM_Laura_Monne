@@ -393,16 +393,7 @@ def create_metrics() -> Dict[str, object]:
     # Orden de intentos: de más específico a más general
     randomization_metric = None
     config_attempts = [
-        # Configuración 1: Con distancia euclidiana (más sensible que correlación)
-        {
-            "name": "distancia euclidiana + normalización",
-            "params": {
-                "similarity_func": quantus.similarity_func.euclidean_distance,
-                "normalise": True,
-                "disable_warnings": True,
-            }
-        },
-        # Configuración 2: Con correlación de Spearman (sin normalización para más variación)
+        # Configuración 1: Con correlación de Spearman (sin normalización para más variación)
         {
             "name": "correlación Spearman sin normalización",
             "params": {
@@ -411,7 +402,7 @@ def create_metrics() -> Dict[str, object]:
                 "disable_warnings": True,
             }
         },
-        # Configuración 3: Con correlación de Spearman (con normalización)
+        # Configuración 2: Con correlación de Spearman (con normalización)
         {
             "name": "correlación Spearman + normalización",
             "params": {
@@ -420,7 +411,7 @@ def create_metrics() -> Dict[str, object]:
                 "disable_warnings": True,
             }
         },
-        # Configuración 4: Con correlación de Pearson
+        # Configuración 3: Con correlación de Pearson
         {
             "name": "correlación Pearson + normalización",
             "params": {
@@ -429,7 +420,7 @@ def create_metrics() -> Dict[str, object]:
                 "disable_warnings": True,
             }
         },
-        # Configuración 5: Solo normalización
+        # Configuración 4: Solo normalización
         {
             "name": "solo normalización",
             "params": {
@@ -437,7 +428,7 @@ def create_metrics() -> Dict[str, object]:
                 "disable_warnings": True,
             }
         },
-        # Configuración 6: Sin normalización (más variación)
+        # Configuración 5: Sin normalización (más variación)
         {
             "name": "sin normalización",
             "params": {
@@ -445,7 +436,7 @@ def create_metrics() -> Dict[str, object]:
                 "disable_warnings": True,
             }
         },
-        # Configuración 7: Por defecto
+        # Configuración 6: Por defecto
         {
             "name": "por defecto",
             "params": {}
