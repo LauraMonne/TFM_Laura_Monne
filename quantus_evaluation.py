@@ -15,6 +15,7 @@ Uso típico:
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 import random
@@ -499,10 +500,13 @@ def create_alternative_randomization_metric():
         
         def __call__(self, model, x_batch, y_batch, explain_func, **kwargs):
             """
-            Calcula la variabilidad de las explicaciones con diferentes seeds.
+            Calcula la diferencia entre explicaciones del modelo original y un modelo aleatorizado.
+            
+            Esta métrica mide qué tan diferentes son las explicaciones cuando se comparan
+            con un modelo con parámetros completamente aleatorizados.
             
             Args:
-                model: Modelo PyTorch
+                model: Modelo PyTorch original
                 x_batch: Batch de imágenes (B, C, H, W)
                 y_batch: Batch de etiquetas
                 explain_func: Función que genera explicaciones
@@ -514,64 +518,67 @@ def create_alternative_randomization_metric():
             device = kwargs.get('device', next(model.parameters()).device)
             scores = []
             
-            # Generar explicaciones con diferentes seeds
-            explanations_list = []
-            for seed in range(self.num_seeds):
-                # Establecer seed para reproducibilidad
-                torch.manual_seed(seed)
-                np.random.seed(seed)
-                if torch.cuda.is_available():
-                    torch.cuda.manual_seed_all(seed)
-                
-                # Generar explicaciones con este seed
-                expl = explain_func(model, x_batch, y_batch)
-                explanations_list.append(expl)
+            # Generar explicaciones con el modelo original
+            expl_original = explain_func(model, x_batch, y_batch)
             
-            # Calcular variabilidad entre explicaciones
-            # Usamos la desviación estándar de las explicaciones normalizadas
-            for i in range(len(x_batch)):
-                # Obtener todas las explicaciones para esta muestra
-                sample_explanations = [exp[i] for exp in explanations_list]
-                
-                # Convertir a numpy y normalizar cada una
-                normalized_exps = []
-                for exp in sample_explanations:
-                    exp_np = np.array(exp) if not isinstance(exp, np.ndarray) else exp
-                    # Normalizar a [0, 1]
-                    exp_flat = exp_np.flatten()
-                    if exp_flat.max() - exp_flat.min() > 1e-8:
-                        exp_norm = (exp_flat - exp_flat.min()) / (exp_flat.max() - exp_flat.min())
+            # Crear una copia del modelo con parámetros aleatorizados
+            model_randomized = copy.deepcopy(model)
+            
+            # Aleatorizar todos los parámetros del modelo
+            with torch.no_grad():
+                for param in model_randomized.parameters():
+                    # Inicializar con valores aleatorios (similar a inicialización normal)
+                    if len(param.shape) >= 2:
+                        # Para matrices (conv, linear): usar inicialización normal
+                        torch.nn.init.normal_(param, mean=0.0, std=0.1)
                     else:
-                        exp_norm = exp_flat
-                    normalized_exps.append(exp_norm)
+                        # Para bias: usar valores pequeños aleatorios
+                        torch.nn.init.normal_(param, mean=0.0, std=0.01)
+            
+            model_randomized.eval()
+            
+            # Generar explicaciones con el modelo aleatorizado
+            expl_randomized = explain_func(model_randomized, x_batch, y_batch)
+            
+            # Calcular diferencia entre explicaciones originales y aleatorizadas
+            for i in range(len(x_batch)):
+                # Obtener explicaciones para esta muestra
+                exp_orig = np.array(expl_original[i]) if not isinstance(expl_original[i], np.ndarray) else expl_original[i]
+                exp_rand = np.array(expl_randomized[i]) if not isinstance(expl_randomized[i], np.ndarray) else expl_randomized[i]
                 
-                # Calcular desviación estándar promedio entre explicaciones
-                # Mayor desviación = más variabilidad = mejor
-                if len(normalized_exps) > 1:
-                    # Calcular distancia promedio entre pares de explicaciones
-                    distances = []
-                    for j in range(len(normalized_exps)):
-                        for k in range(j + 1, len(normalized_exps)):
-                            # Distancia euclidiana normalizada
-                            dist = np.linalg.norm(normalized_exps[j] - normalized_exps[k])
-                            distances.append(dist)
-                    
-                    # Calcular distancia promedio (más alto = más variabilidad = mejor)
-                    mean_distance = np.mean(distances) if distances else 0.0
-                    # Normalizar distancia (distancia máxima posible es ~sqrt(2) para vectores normalizados)
-                    normalized_distance = min(mean_distance / np.sqrt(2), 1.0)
-                    
-                    # INVERTIR: MPRT mide similitud (1.0 = no cambia = malo)
-                    # Nuestra métrica mide variabilidad (1.0 = mucho cambio = bueno)
-                    # Para ser consistente con MPRT, invertimos: score = 1 - variabilidad
-                    # Así: score alto = poca variabilidad = malo (como MPRT)
-                    #      score bajo = mucha variabilidad = bueno (como MPRT)
-                    score = 1.0 - normalized_distance
+                # Normalizar cada explicación a [0, 1]
+                exp_orig_flat = exp_orig.flatten()
+                exp_rand_flat = exp_rand.flatten()
+                
+                if exp_orig_flat.max() - exp_orig_flat.min() > 1e-8:
+                    exp_orig_norm = (exp_orig_flat - exp_orig_flat.min()) / (exp_orig_flat.max() - exp_orig_flat.min())
                 else:
-                    # Si solo hay una explicación, no hay variabilidad = score = 1.0 (malo)
-                    score = 1.0
+                    exp_orig_norm = exp_orig_flat
+                
+                if exp_rand_flat.max() - exp_rand_flat.min() > 1e-8:
+                    exp_rand_norm = (exp_rand_flat - exp_rand_flat.min()) / (exp_rand_flat.max() - exp_rand_flat.min())
+                else:
+                    exp_rand_norm = exp_rand_flat
+                
+                # Calcular distancia euclidiana entre explicaciones normalizadas
+                # Mayor distancia = más diferencia = mejor (las explicaciones son sensibles a la aleatorización)
+                distance = np.linalg.norm(exp_orig_norm - exp_rand_norm)
+                
+                # Normalizar distancia (distancia máxima posible es ~sqrt(2) para vectores normalizados)
+                normalized_distance = min(distance / np.sqrt(2), 1.0)
+                
+                # INVERTIR: MPRT mide similitud (1.0 = no cambia = malo)
+                # Nuestra métrica mide diferencia (1.0 = mucho cambio = bueno)
+                # Para ser consistente con MPRT, invertimos: score = 1 - diferencia
+                # Así: score alto = poca diferencia = malo (como MPRT)
+                #      score bajo = mucha diferencia = bueno (como MPRT)
+                score = 1.0 - normalized_distance
                 
                 scores.append(score)
+            
+            # Limpiar modelo aleatorizado de memoria
+            del model_randomized
+            torch.cuda.empty_cache() if torch.cuda.is_available() else None
             
             return np.array(scores)
     
