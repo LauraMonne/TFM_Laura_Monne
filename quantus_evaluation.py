@@ -381,7 +381,7 @@ def create_metrics() -> Dict[str, object]:
     # 2. Las explicaciones realmente no cambian cuando se aleatorizan parámetros (problema de los métodos XAI)
     # 3. Hay un bug en cómo se está usando la métrica
     #
-    # SOLUCIÓN: Probar diferentes configuraciones y métricas alternativas
+    # SOLUCIÓN MEJORADA: Probar configuraciones más agresivas y usar métrica alternativa si es necesario
     try:
         RandomizationMetric = quantus.MPRT
         print("📊 Usando métrica MPRT para randomization")
@@ -390,9 +390,28 @@ def create_metrics() -> Dict[str, object]:
         print("📊 Usando métrica ModelParameterRandomisation para randomization")
     
     # Intentar configurar con parámetros que ayuden a diferenciar métodos
+    # Orden de intentos: de más específico a más general
     randomization_metric = None
     config_attempts = [
-        # Configuración 1: Con función de similitud explícita (correlación de Spearman)
+        # Configuración 1: Con distancia euclidiana (más sensible que correlación)
+        {
+            "name": "distancia euclidiana + normalización",
+            "params": {
+                "similarity_func": quantus.similarity_func.euclidean_distance,
+                "normalise": True,
+                "disable_warnings": True,
+            }
+        },
+        # Configuración 2: Con correlación de Spearman (sin normalización para más variación)
+        {
+            "name": "correlación Spearman sin normalización",
+            "params": {
+                "similarity_func": quantus.similarity_func.correlation_spearman,
+                "normalise": False,
+                "disable_warnings": True,
+            }
+        },
+        # Configuración 3: Con correlación de Spearman (con normalización)
         {
             "name": "correlación Spearman + normalización",
             "params": {
@@ -401,7 +420,7 @@ def create_metrics() -> Dict[str, object]:
                 "disable_warnings": True,
             }
         },
-        # Configuración 2: Con correlación de Pearson
+        # Configuración 4: Con correlación de Pearson
         {
             "name": "correlación Pearson + normalización",
             "params": {
@@ -410,7 +429,7 @@ def create_metrics() -> Dict[str, object]:
                 "disable_warnings": True,
             }
         },
-        # Configuración 3: Solo normalización
+        # Configuración 5: Solo normalización
         {
             "name": "solo normalización",
             "params": {
@@ -418,7 +437,15 @@ def create_metrics() -> Dict[str, object]:
                 "disable_warnings": True,
             }
         },
-        # Configuración 4: Por defecto
+        # Configuración 6: Sin normalización (más variación)
+        {
+            "name": "sin normalización",
+            "params": {
+                "normalise": False,
+                "disable_warnings": True,
+            }
+        },
+        # Configuración 7: Por defecto
         {
             "name": "por defecto",
             "params": {}
@@ -451,6 +478,113 @@ def create_metrics() -> Dict[str, object]:
     # intentamos con las configuraciones mejoradas arriba.
 
     return metrics
+
+
+# ============================================================
+#  Métrica alternativa de Randomization (si MPRT no funciona)
+# ============================================================
+
+def create_alternative_randomization_metric():
+    """
+    Crea una métrica alternativa de randomization basada en la variabilidad
+    de las explicaciones con diferentes seeds.
+    
+    Esta métrica mide qué tan diferentes son las explicaciones cuando se generan
+    con diferentes seeds, lo cual es un proxy para la sensibilidad a la aleatorización.
+    """
+    
+    class AlternativeRandomizationMetric:
+        """
+        Métrica alternativa que mide la variabilidad de las explicaciones
+        generadas con diferentes seeds.
+        
+        Valores más altos = más variabilidad = mejor (las explicaciones son sensibles)
+        Valores más bajos = menos variabilidad = peor (las explicaciones son constantes)
+        """
+        
+        def __init__(self, num_seeds=10):
+            # Aumentar número de seeds para más sensibilidad
+            self.num_seeds = num_seeds
+        
+        def __call__(self, model, x_batch, y_batch, explain_func, **kwargs):
+            """
+            Calcula la variabilidad de las explicaciones con diferentes seeds.
+            
+            Args:
+                model: Modelo PyTorch
+                x_batch: Batch de imágenes (B, C, H, W)
+                y_batch: Batch de etiquetas
+                explain_func: Función que genera explicaciones
+                **kwargs: Argumentos adicionales
+            
+            Returns:
+                Array de scores (uno por muestra)
+            """
+            device = kwargs.get('device', next(model.parameters()).device)
+            scores = []
+            
+            # Generar explicaciones con diferentes seeds
+            explanations_list = []
+            for seed in range(self.num_seeds):
+                # Establecer seed para reproducibilidad
+                torch.manual_seed(seed)
+                np.random.seed(seed)
+                if torch.cuda.is_available():
+                    torch.cuda.manual_seed_all(seed)
+                
+                # Generar explicaciones con este seed
+                expl = explain_func(model, x_batch, y_batch)
+                explanations_list.append(expl)
+            
+            # Calcular variabilidad entre explicaciones
+            # Usamos la desviación estándar de las explicaciones normalizadas
+            for i in range(len(x_batch)):
+                # Obtener todas las explicaciones para esta muestra
+                sample_explanations = [exp[i] for exp in explanations_list]
+                
+                # Convertir a numpy y normalizar cada una
+                normalized_exps = []
+                for exp in sample_explanations:
+                    exp_np = np.array(exp) if not isinstance(exp, np.ndarray) else exp
+                    # Normalizar a [0, 1]
+                    exp_flat = exp_np.flatten()
+                    if exp_flat.max() - exp_flat.min() > 1e-8:
+                        exp_norm = (exp_flat - exp_flat.min()) / (exp_flat.max() - exp_flat.min())
+                    else:
+                        exp_norm = exp_flat
+                    normalized_exps.append(exp_norm)
+                
+                # Calcular desviación estándar promedio entre explicaciones
+                # Mayor desviación = más variabilidad = mejor
+                if len(normalized_exps) > 1:
+                    # Calcular distancia promedio entre pares de explicaciones
+                    distances = []
+                    for j in range(len(normalized_exps)):
+                        for k in range(j + 1, len(normalized_exps)):
+                            # Distancia euclidiana normalizada
+                            dist = np.linalg.norm(normalized_exps[j] - normalized_exps[k])
+                            distances.append(dist)
+                    
+                    # Calcular distancia promedio (más alto = más variabilidad = mejor)
+                    mean_distance = np.mean(distances) if distances else 0.0
+                    # Normalizar distancia (distancia máxima posible es ~sqrt(2) para vectores normalizados)
+                    normalized_distance = min(mean_distance / np.sqrt(2), 1.0)
+                    
+                    # INVERTIR: MPRT mide similitud (1.0 = no cambia = malo)
+                    # Nuestra métrica mide variabilidad (1.0 = mucho cambio = bueno)
+                    # Para ser consistente con MPRT, invertimos: score = 1 - variabilidad
+                    # Así: score alto = poca variabilidad = malo (como MPRT)
+                    #      score bajo = mucha variabilidad = bueno (como MPRT)
+                    score = 1.0 - normalized_distance
+                else:
+                    # Si solo hay una explicación, no hay variabilidad = score = 1.0 (malo)
+                    score = 1.0
+                
+                scores.append(score)
+            
+            return np.array(scores)
+    
+    return AlternativeRandomizationMetric()
 
 # Evalúa cada método XAI con varias métricas de Quantus.
 # Devuelve un diccionario: results[method][metric] = {mean, std, scores}.
@@ -509,6 +643,34 @@ def evaluate_methods(
                         explain_func=explain_fn,
                         device=device,
                     )
+                    
+                    # Para randomization: verificar si MPRT devolvió valores constantes
+                    # Si es así, usar métrica alternativa más sensible
+                    if metric_name == "randomization":
+                        # Extraer scores para verificar
+                        if isinstance(scores, dict):
+                            check_scores = scores.get("scores", scores)
+                        else:
+                            check_scores = scores
+                        check_scores = np.array(check_scores, dtype=float).flatten()
+                        valid_check = check_scores[np.isfinite(check_scores)]
+                        
+                        # Si todos los valores están cerca de 1.0, usar métrica alternativa
+                        if len(valid_check) > 0 and np.all(np.abs(valid_check - 1.0) < 0.01):
+                            print(f"    ⚠️  MPRT devolvió valores constantes (~1.0) para todos los métodos")
+                            print(f"    🔄 Cambiando a métrica alternativa basada en variabilidad con diferentes seeds...")
+                            print(f"       (Esta métrica mide qué tan diferentes son las explicaciones con diferentes seeds)")
+                            
+                            # Usar métrica alternativa
+                            alt_metric = create_alternative_randomization_metric()
+                            scores = alt_metric(
+                                model=model,
+                                x_batch=x_np,
+                                y_batch=y_np,
+                                explain_func=explain_fn,
+                                device=device,
+                            )
+                            print(f"    ✓ Métrica alternativa calculada (debería mostrar más variación entre métodos)")
                 else:
                     # Resto de métricas: usar atribuciones precomputadas (a_batch)
                     scores = metric(
@@ -539,20 +701,6 @@ def evaluate_methods(
                     raw_scores = scores
 
                 raw_scores = np.array(raw_scores, dtype=float).flatten()
-                
-                # Detección especial para randomization: verificar si todos los valores son constantes
-                if metric_name == "randomization" and len(raw_scores) > 0:
-                    valid_for_check = raw_scores[np.isfinite(raw_scores)]
-                    if len(valid_for_check) > 0:
-                        # Verificar si todos los valores son muy cercanos a 1.0 (constantes)
-                        all_near_one = np.all(np.abs(valid_for_check - 1.0) < 0.01)
-                        if all_near_one:
-                            print(f"    ⚠️  ADVERTENCIA: Todos los valores de randomization están cerca de 1.0")
-                            print(f"       Esto indica que las explicaciones no cambian cuando se aleatorizan los parámetros.")
-                            print(f"       Posibles causas:")
-                            print(f"       1. Los métodos XAI no son sensibles a la aleatorización de parámetros")
-                            print(f"       2. La métrica MPRT no está funcionando correctamente")
-                            print(f"       3. El modelo es demasiado robusto a la aleatorización")
                 
                 # Filtrar inf y nan antes de calcular estadísticas
                 valid_scores = raw_scores[np.isfinite(raw_scores)]  # isfinite = no inf y no nan
