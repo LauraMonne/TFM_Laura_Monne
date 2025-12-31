@@ -271,17 +271,18 @@ def create_metrics() -> Dict[str, object]:
     # Robustez
     # Configuración para evitar valores inf/nan:
     # - return_nan_when_prediction_changes=True: devuelve nan en lugar de inf cuando la predicción cambia
-    # - nr_samples=20: reduce aún más el número de muestras para evitar problemas numéricos (default=200)
-    # - lower_bound=0.05: reduce el ruido mínimo para evitar perturbaciones demasiado pequeñas
+    # - nr_samples=30: reduce el número de muestras para evitar problemas numéricos (default=200)
+    # - lower_bound=0.02: ruido mínimo muy pequeño para evitar cambios de predicción
+    # - upper_bound=0.15: ruido máximo pequeño para mantener predicciones estables
     # - abs=True: usa valores absolutos para evitar problemas con signos
     # - normalise=True: normaliza las explicaciones para estabilidad numérica
-    # - perturb_func_kwargs: ajustar la función de perturbación para ser más suave
+    # - similarity_func: usar correlación en lugar de distancia euclidiana (más robusta)
     metrics["robustness"] = quantus.AvgSensitivity(
-        nr_samples=20,  # Reducir aún más muestras para evitar problemas numéricos
+        nr_samples=30,  # Reducir muestras para evitar problemas numéricos
         abs=True,  # Usar valores absolutos
         normalise=True,  # Normalizar para estabilidad
-        lower_bound=0.05,  # Ruido mínimo más pequeño y controlado
-        upper_bound=0.2,  # Ruido máximo más pequeño para evitar cambios de predicción
+        lower_bound=0.02,  # Ruido mínimo muy pequeño para evitar cambios de predicción
+        upper_bound=0.15,  # Ruido máximo pequeño para mantener predicciones estables
         return_nan_when_prediction_changes=True,  # Devolver nan en lugar de inf
         disable_warnings=True,  # Desactivar warnings para limpieza
     )
