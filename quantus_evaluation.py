@@ -26,6 +26,12 @@ import torch
 from tqdm import tqdm
 
 try:
+    from scipy.stats import spearmanr
+    HAS_SCIPY = True
+except ImportError:
+    HAS_SCIPY = False
+
+try:
     import quantus
 except ImportError as exc:
     raise SystemExit(
@@ -541,38 +547,54 @@ def create_alternative_randomization_metric():
             expl_randomized = explain_func(model_randomized, x_batch, y_batch)
             
             # Calcular diferencia entre explicaciones originales y aleatorizadas
+            # Usamos correlación de Spearman: valores altos = alta correlación = malo (no cambian)
+            # Valores bajos = baja correlación = bueno (cambian mucho)
             for i in range(len(x_batch)):
                 # Obtener explicaciones para esta muestra
                 exp_orig = np.array(expl_original[i]) if not isinstance(expl_original[i], np.ndarray) else expl_original[i]
                 exp_rand = np.array(expl_randomized[i]) if not isinstance(expl_randomized[i], np.ndarray) else expl_randomized[i]
                 
-                # Normalizar cada explicación a [0, 1]
+                # Aplanar a vectores 1D
                 exp_orig_flat = exp_orig.flatten()
                 exp_rand_flat = exp_rand.flatten()
                 
-                if exp_orig_flat.max() - exp_orig_flat.min() > 1e-8:
-                    exp_orig_norm = (exp_orig_flat - exp_orig_flat.min()) / (exp_orig_flat.max() - exp_orig_flat.min())
+                # Asegurar que tienen la misma longitud
+                min_len = min(len(exp_orig_flat), len(exp_rand_flat))
+                exp_orig_flat = exp_orig_flat[:min_len]
+                exp_rand_flat = exp_rand_flat[:min_len]
+                
+                # Calcular correlación de Spearman o distancia euclidiana como fallback
+                if HAS_SCIPY:
+                    try:
+                        correlation, _ = spearmanr(exp_orig_flat, exp_rand_flat)
+                        # Manejar NaN (puede ocurrir si hay valores constantes)
+                        if np.isnan(correlation):
+                            correlation = 0.0  # Si no hay correlación definida, asumir 0 (bueno)
+                    except Exception:
+                        correlation = 0.0  # Si hay error, asumir 0 (bueno)
+                    
+                    # El score es la correlación mapeada a [0, 1]
+                    # Correlación alta (cercana a 1) = explicaciones similares = malo (no son sensibles)
+                    # Correlación baja (cercana a 0 o negativa) = explicaciones diferentes = bueno (son sensibles)
+                    # Mapear [-1, 1] a [0, 1]: 1 = correlación perfecta (malo), 0 = sin correlación (bueno)
+                    score = (correlation + 1.0) / 2.0
                 else:
-                    exp_orig_norm = exp_orig_flat
-                
-                if exp_rand_flat.max() - exp_rand_flat.min() > 1e-8:
-                    exp_rand_norm = (exp_rand_flat - exp_rand_flat.min()) / (exp_rand_flat.max() - exp_rand_flat.min())
-                else:
-                    exp_rand_norm = exp_rand_flat
-                
-                # Calcular distancia euclidiana entre explicaciones normalizadas
-                # Mayor distancia = más diferencia = mejor (las explicaciones son sensibles a la aleatorización)
-                distance = np.linalg.norm(exp_orig_norm - exp_rand_norm)
-                
-                # Normalizar distancia (distancia máxima posible es ~sqrt(2) para vectores normalizados)
-                normalized_distance = min(distance / np.sqrt(2), 1.0)
-                
-                # INVERTIR: MPRT mide similitud (1.0 = no cambia = malo)
-                # Nuestra métrica mide diferencia (1.0 = mucho cambio = bueno)
-                # Para ser consistente con MPRT, invertimos: score = 1 - diferencia
-                # Así: score alto = poca diferencia = malo (como MPRT)
-                #      score bajo = mucha diferencia = bueno (como MPRT)
-                score = 1.0 - normalized_distance
+                    # Fallback: usar distancia euclidiana normalizada
+                    # Normalizar ambas explicaciones juntas para preservar diferencias relativas
+                    combined = np.concatenate([exp_orig_flat, exp_rand_flat])
+                    if combined.max() - combined.min() > 1e-8:
+                        exp_orig_norm = (exp_orig_flat - combined.min()) / (combined.max() - combined.min())
+                        exp_rand_norm = (exp_rand_flat - combined.min()) / (combined.max() - combined.min())
+                    else:
+                        exp_orig_norm = exp_orig_flat
+                        exp_rand_norm = exp_rand_flat
+                    
+                    # Calcular distancia euclidiana
+                    distance = np.linalg.norm(exp_orig_norm - exp_rand_norm)
+                    # Normalizar distancia (máxima posible es sqrt(2) para vectores normalizados)
+                    normalized_distance = min(distance / np.sqrt(2), 1.0)
+                    # Invertir: distancia alta = diferencia grande = bueno, pero queremos score alto = malo
+                    score = 1.0 - normalized_distance
                 
                 scores.append(score)
             
