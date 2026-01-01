@@ -44,6 +44,9 @@ Parámetros principales:
 | `--dataset` | Dataset a evaluar (`blood`, `retina`, `breast`) | Obligatorio |
 | `--model_path` | Ruta al checkpoint del modelo | Obligatorio |
 | `--num_samples` | Nº de imágenes del test utilizadas para generar atribuciones | 30 |
+| `--sample_strategy` | Muestreo del test: `first` (primeras N) o `reservoir` (aleatorio uniforme) | `reservoir` |
+| `--seed` | Semilla para muestreo aleatorio | 42 |
+| `--target` | Etiquetas objetivo para métricas: `pred` (predicha) o `true` (real) | `pred` |
 | `--methods` | Métodos XAI (`gradcam`, `gradcampp`, `integrated_gradients`, `saliency`) | Todos |
 | `--device` | `cuda` o `cpu` | Detectado automáticamente |
 
@@ -56,6 +59,11 @@ Parámetros principales:
 | Complejidad | `Entropy` | Simplicidad / dispersión de la explicación. |
 | Aleatorización | `ModelParameterRandomisation` | Comprueba dependencia respecto a pesos del modelo. |
 | Localización | `RegionPerturbation` (proxy) | Evalúa qué ocurre al anular regiones de alta atribución. |
+
+**Nota de configuración (rendimiento):** el script reduce el coste computacional con
+`nr_runs=30` en Faithfulness, `regions_evaluation=30` en Localización y en Randomization
+usa `skip_layers=True` (comparación solo original vs totalmente randomizado). Ajusta estos
+valores en `quantus_evaluation.py` si necesitas mayor fidelidad estadística.
 
 ## Salida
 
@@ -82,4 +90,3 @@ python train.py --dataset breast
 4. Analizar los resultados en `notebooks/quantus_eval.ipynb`.
 
 Con este flujo se cumple la sección 3.8 de la memoria, aportando métricas objetivas de fidelidad, robustez, complejidad, aleatorización y localización para los métodos de explicabilidad. 
-
