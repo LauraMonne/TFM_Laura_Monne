@@ -40,8 +40,12 @@ La arquitectura VGG16 Small es una versión reducida del VGG16 original, con las
 ```
 VGG16 Small:     ~3.7M parámetros
 ResNet18:        ~11M parámetros
-Reducción:       ~66%
+Reducción:       ~66% (en parámetros totales)
 ```
+
+**Nota sobre reducción:**
+- Reducción de filtros: ~50% (32→64→128→256→256 vs 64→128→256→512→512)
+- Reducción de parámetros: ~66% (debido a capas densas también más pequeñas)
 
 ## Uso
 

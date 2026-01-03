@@ -9,9 +9,19 @@ import torch.nn as nn
 
 # Reproductibilidad y rendimiento
 def set_seed(seed=42):
+    """
+    Fija las semillas aleatorias para reproducibilidad.
+    
+    Args:
+        seed: Semilla para generadores aleatorios
+    
+    Note:
+        torch.backends.cudnn.benchmark=True optimiza CUDNN para modelos con
+        tamaño de entrada fijo, mejorando el rendimiento en GPU.
+    """
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    # Rendimiento en GPU:
+    # Optimización CUDNN para tamaños de entrada fijos (mejor rendimiento en GPU)
     torch.backends.cudnn.benchmark = True
 
 

@@ -162,8 +162,15 @@ def test_vgg16_structure():
         
     except ImportError:
         print("⚠ ResNet18 no disponible para comparación")
+    except AssertionError as e:
+        print(f"✗ Error de aserción: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
     except Exception as e:
-        print(f"✗ Error en comparación: {e}")
+        print(f"✗ Error inesperado en comparación: {e}")
+        import traceback
+        traceback.print_exc()
         return False
     
     print("\n" + "="*60)

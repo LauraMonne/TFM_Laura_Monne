@@ -39,10 +39,19 @@ from vgg16 import create_model, set_seed
 from torch.cuda.amp import autocast, GradScaler
 
 # ----------------------------- Utilidades -----------------------------
-# Calcula pesos de clase inversos a la frecuencia sobre un dataset con etiquetas [0..num_classes-1].
+
 def compute_class_weights(dataset, num_classes: int):
     """
-    Calcula pesos de clase inversos a la frecuencia sobre un dataset con etiquetas [0..num_classes-1].
+    Calcula pesos de clase inversos a la frecuencia sobre un dataset.
+    
+    Args:
+        dataset: Dataset de PyTorch con tuplas (imagen, label)
+        num_classes: Número de clases esperadas
+    
+    Returns:
+        tuple: (pesos_clase, conteos) como arrays de numpy
+            - pesos_clase: Array de pesos normalizados (sum=num_classes)
+            - conteos: Conteo de muestras por clase
     """
     labels = []
     for i in range(len(dataset)):
@@ -188,7 +197,7 @@ class Trainer:
 
             self.scaler.scale(loss).backward()
             self.scaler.unscale_(self.optimizer)
-            gc_norm = float(self.config.get('grad_clip_norm', 0.0) or 0.0)
+            gc_norm = self.config.get('grad_clip_norm', 0.0)
             if gc_norm > 0.0:
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), gc_norm)
             self.scaler.step(self.optimizer)

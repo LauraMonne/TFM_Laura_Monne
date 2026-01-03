@@ -95,10 +95,11 @@ def compare_training_results(dataset: str):
     
     # Cargar resultados
     vgg16_results = load_training_results("vgg16", dataset)
-    resnet18_results = load_training_results("resnet18", dataset)  
     
-    # Intentar cargar con nombre alternativo si no existe
+    # ResNet18 puede estar guardado con o sin sufijo
+    resnet18_results = load_training_results("resnet18", dataset)
     if resnet18_results is None:
+        # Intentar con nombre sin sufijo (best_model_{dataset}.pth)
         resnet18_results = load_training_results("", dataset)
     
     if vgg16_results is None and resnet18_results is None:
