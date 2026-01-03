@@ -1,0 +1,7 @@
+Comparación,p-valor,Significación,Tamaño efecto (r),Magnitud,Mejor método,Diferencia
+gradcam vs gradcampp,3.4797319580852345e-07,***,0.6005007328727618,grande,gradcam,0.2974131416796276
+gradcam vs saliency,2.046746475848034e-13,***,0.8656998450775828,grande,gradcam,0.4133834624035096
+gradcam vs integrated_gradients,1.6587518023763977e-13,***,0.8690065671748998,grande,gradcam,0.6346017618477525
+gradcampp vs saliency,0.011165255640191399,ns,0.2537483734581534,pequeño,gradcampp,0.11597032072388196
+gradcampp vs integrated_gradients,1.6784884860821076e-12,***,0.7058880903923969,grande,gradcampp,0.3371886201681249
+saliency vs integrated_gradients,4.139373908714419e-18,***,0.8674893580418983,grande,saliency,0.22121829944424293

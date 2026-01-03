@@ -1,0 +1,7 @@
+Comparación,p-valor,Significación,Tamaño efecto (r),Magnitud,Mejor método,Diferencia
+integrated_gradients vs saliency,2.9509875168878765e-58,***,0.3777041539712805,mediano,integrated_gradients,0.07026700118184087
+integrated_gradients vs gradcampp,0.0,***,0.7446638112185688,grande,integrated_gradients,0.2791815739373366
+integrated_gradients vs gradcam,0.0,***,0.7410860962163729,grande,integrated_gradients,0.2797542669475078
+saliency vs gradcampp,1.9755618470615224e-249,***,0.6760022750927999,grande,saliency,0.20891457275549574
+saliency vs gradcam,2.479159287686818e-240,***,0.6610399419462135,grande,saliency,0.20948726576566698
+gradcampp vs gradcam,0.010194581782666929,ns,0.38677302176523093,mediano,gradcampp,0.0005726930101712518
