@@ -25,23 +25,23 @@ Fidelidad:
 Robustez:
 --------------------------------------------------------------------------------
   • gradcampp vs gradcam
-    p = 0.0000 ***, efecto grande (r = 0.825)
+    p = 0.0000 ***, efecto grande (r = 0.800)
     → gradcampp es significativamente mejor
 
   • gradcampp vs saliency
-    p = 0.0000 ***, efecto grande (r = 0.868)
+    p = 0.0000 ***, efecto grande (r = 0.800)
     → gradcampp es significativamente mejor
 
   • gradcampp vs integrated_gradients
-    p = 0.0000 ***, efecto grande (r = 0.868)
+    p = 0.0000 ***, efecto grande (r = 0.800)
     → gradcampp es significativamente mejor
 
   • gradcam vs saliency
-    p = 0.0000 ***, efecto grande (r = 0.868)
+    p = 0.0000 ***, efecto grande (r = 0.800)
     → gradcam es significativamente mejor
 
   • gradcam vs integrated_gradients
-    p = 0.0000 ***, efecto grande (r = 0.868)
+    p = 0.0000 ***, efecto grande (r = 0.800)
     → gradcam es significativamente mejor
 
   • saliency vs integrated_gradients
@@ -56,11 +56,11 @@ Randomization:
     → gradcampp es significativamente mejor
 
   • gradcampp vs integrated_gradients
-    p = 0.0000 ***, efecto grande (r = 0.827)
+    p = 0.0000 ***, efecto grande (r = 0.800)
     → gradcampp es significativamente mejor
 
   • gradcampp vs saliency
-    p = 0.0000 ***, efecto grande (r = 0.839)
+    p = 0.0000 ***, efecto grande (r = 0.800)
     → gradcampp es significativamente mejor
 
   • gradcam vs integrated_gradients
@@ -79,42 +79,42 @@ Randomization:
 Localización:
 --------------------------------------------------------------------------------
   • integrated_gradients vs saliency
-    p = 0.0000 ***, efecto mediano (r = 0.378)
+    p = 0.0000 ***, efecto pequeño (r = 0.146)
     → integrated_gradients es significativamente mejor
 
   • integrated_gradients vs gradcampp
-    p = 0.0000 ***, efecto grande (r = 0.745)
+    p = 0.0000 ***, efecto pequeño (r = 0.146)
     → integrated_gradients es significativamente mejor
 
   • integrated_gradients vs gradcam
-    p = 0.0000 ***, efecto grande (r = 0.741)
+    p = 0.0000 ***, efecto pequeño (r = 0.146)
     → integrated_gradients es significativamente mejor
 
   • saliency vs gradcampp
-    p = 0.0000 ***, efecto grande (r = 0.676)
+    p = 0.0000 ***, efecto pequeño (r = 0.146)
     → saliency es significativamente mejor
 
   • saliency vs gradcam
-    p = 0.0000 ***, efecto grande (r = 0.661)
+    p = 0.0000 ***, efecto pequeño (r = 0.146)
     → saliency es significativamente mejor
 
 
 Complejidad:
 --------------------------------------------------------------------------------
   • integrated_gradients vs gradcam
-    p = 0.0000 ***, efecto grande (r = 0.868)
+    p = 0.0000 ***, efecto grande (r = 0.800)
     → integrated_gradients es significativamente mejor
 
   • integrated_gradients vs gradcampp
-    p = 0.0000 ***, efecto grande (r = 0.868)
+    p = 0.0000 ***, efecto grande (r = 0.800)
     → integrated_gradients es significativamente mejor
 
   • saliency vs gradcam
-    p = 0.0000 ***, efecto grande (r = 0.868)
+    p = 0.0000 ***, efecto grande (r = 0.800)
     → saliency es significativamente mejor
 
   • saliency vs gradcampp
-    p = 0.0000 ***, efecto grande (r = 0.868)
+    p = 0.0000 ***, efecto grande (r = 0.800)
     → saliency es significativamente mejor
 
   • gradcam vs gradcampp
@@ -183,22 +183,22 @@ Randomization:
     → gradcampp es significativamente mejor
 
   • saliency vs integrated_gradients
-    p = 0.0000 ***, efecto grande (r = 0.867)
+    p = 0.0000 ***, efecto grande (r = 0.800)
     → saliency es significativamente mejor
 
 
 Localización:
 --------------------------------------------------------------------------------
   • integrated_gradients vs saliency
-    p = 0.0000 ***, efecto grande (r = 0.501)
+    p = 0.0000 ***, efecto pequeño (r = 0.146)
     → integrated_gradients es significativamente mejor
 
   • integrated_gradients vs gradcampp
-    p = 0.0000 ***, efecto pequeño (r = 0.117)
+    p = 0.0000 ***, efecto pequeño (r = 0.111)
     → integrated_gradients es significativamente mejor
 
   • integrated_gradients vs gradcam
-    p = 0.0000 ***, efecto despreciable (r = 0.084)
+    p = 0.0000 ***, efecto despreciable (r = 0.080)
     → integrated_gradients es significativamente mejor
 
 
@@ -213,7 +213,7 @@ Complejidad:
     → integrated_gradients es significativamente mejor
 
   • integrated_gradients vs gradcampp
-    p = 0.0000 ***, efecto grande (r = 0.868)
+    p = 0.0000 ***, efecto grande (r = 0.800)
     → integrated_gradients es significativamente mejor
 
   • saliency vs gradcam
@@ -221,7 +221,7 @@ Complejidad:
     → saliency es significativamente mejor
 
   • saliency vs gradcampp
-    p = 0.0000 ***, efecto grande (r = 0.859)
+    p = 0.0000 ***, efecto grande (r = 0.800)
     → saliency es significativamente mejor
 
   • gradcam vs gradcampp
@@ -268,15 +268,15 @@ Robustez:
 Randomization:
 --------------------------------------------------------------------------------
   • gradcampp vs gradcam
-    p = 0.0000 ***, efecto grande (r = 0.837)
+    p = 0.0000 ***, efecto grande (r = 0.838)
     → gradcampp es significativamente mejor
 
   • gradcampp vs saliency
-    p = 0.0000 ***, efecto grande (r = 0.867)
+    p = 0.0000 ***, efecto grande (r = 0.800)
     → gradcampp es significativamente mejor
 
   • gradcampp vs integrated_gradients
-    p = 0.0000 ***, efecto grande (r = 0.868)
+    p = 0.0000 ***, efecto grande (r = 0.800)
     → gradcampp es significativamente mejor
 
   • gradcam vs saliency
@@ -288,22 +288,22 @@ Randomization:
     → gradcam es significativamente mejor
 
   • saliency vs integrated_gradients
-    p = 0.0000 ***, efecto grande (r = 0.836)
+    p = 0.0000 ***, efecto grande (r = 0.800)
     → saliency es significativamente mejor
 
 
 Localización:
 --------------------------------------------------------------------------------
   • integrated_gradients vs saliency
-    p = 0.0000 ***, efecto mediano (r = 0.443)
+    p = 0.0000 ***, efecto pequeño (r = 0.146)
     → integrated_gradients es significativamente mejor
 
   • integrated_gradients vs gradcam
-    p = 0.0000 ***, efecto mediano (r = 0.438)
+    p = 0.0000 ***, efecto pequeño (r = 0.146)
     → integrated_gradients es significativamente mejor
 
   • integrated_gradients vs gradcampp
-    p = 0.0000 ***, efecto grande (r = 0.505)
+    p = 0.0000 ***, efecto pequeño (r = 0.146)
     → integrated_gradients es significativamente mejor
 
   • saliency vs gradcam
@@ -311,30 +311,30 @@ Localización:
     → saliency es significativamente mejor
 
   • saliency vs gradcampp
-    p = 0.0000 ***, efecto pequeño (r = 0.257)
+    p = 0.0000 ***, efecto pequeño (r = 0.146)
     → saliency es significativamente mejor
 
   • gradcam vs gradcampp
-    p = 0.0000 ***, efecto pequeño (r = 0.227)
+    p = 0.0000 ***, efecto pequeño (r = 0.146)
     → gradcam es significativamente mejor
 
 
 Complejidad:
 --------------------------------------------------------------------------------
   • integrated_gradients vs gradcam
-    p = 0.0000 ***, efecto grande (r = 0.859)
+    p = 0.0000 ***, efecto grande (r = 0.800)
     → integrated_gradients es significativamente mejor
 
   • integrated_gradients vs gradcampp
-    p = 0.0000 ***, efecto grande (r = 0.868)
+    p = 0.0000 ***, efecto grande (r = 0.800)
     → integrated_gradients es significativamente mejor
 
   • saliency vs gradcam
-    p = 0.0000 ***, efecto grande (r = 0.865)
+    p = 0.0000 ***, efecto grande (r = 0.800)
     → saliency es significativamente mejor
 
   • saliency vs gradcampp
-    p = 0.0000 ***, efecto grande (r = 0.868)
+    p = 0.0000 ***, efecto grande (r = 0.800)
     → saliency es significativamente mejor
 
   • gradcam vs gradcampp
