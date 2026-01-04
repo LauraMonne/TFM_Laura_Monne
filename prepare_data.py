@@ -8,10 +8,7 @@ independientes**:
 - BreastMNIST (2 clases)
 
 Este módulo se encarga de:
-- Descargar y preparar **cada dataset por separado** (redimensionado a 224x224 y
-  conversión consistente a 3 canales RGB).
-- **Descarga imágenes originales en tamaño 224x224** (en lugar de 28x28 preprocesadas) 
-  para todos los datasets. Esto proporciona:
+- **Descarga imágenes originales en tamaño 224x224** para todos los datasets. Esto proporciona:
   - Mejor precisión de clasificación (especialmente importante para RetinaMNIST)
   - Explicaciones XAI más detalladas y precisas (Grad-CAM, Saliency, etc.)
   - Métricas de Quantus más confiables (localización, fidelidad)
