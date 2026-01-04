@@ -1,0 +1,15 @@
+Dataset,Métrica,Método Superior,N° Victorias Significativas,N° Comparaciones,Efecto Promedio,p-valor Mínimo
+BloodMNIST,Fidelidad,integrated_gradients,2,2,0.3749493241952795,0.00010076375400562272
+BloodMNIST,Robustez,gradcampp,3,6,0.8225046080047144,3.896559845095909e-18
+BloodMNIST,Randomization,gradcampp,3,6,0.7386646587504019,4.8816168731894246e-17
+BloodMNIST,Localización,integrated_gradients,3,5,0.6400992556890471,0.0
+BloodMNIST,Complejidad,integrated_gradients,2,5,0.8466531094896436,3.896559845095909e-18
+BreastMNIST,Fidelidad,gradcam,1,1,0.3438324843606414,0.0005853250706648852
+BreastMNIST,Robustez,gradcampp,3,6,0.8365929651415919,5.362626265112969e-15
+BreastMNIST,Randomization,gradcam,3,5,0.781716918711908,4.139373908714419e-18
+BreastMNIST,Localización,integrated_gradients,1,1,0.5012926101737859,1.2724039879771114e-15
+BreastMNIST,Complejidad,integrated_gradients,3,6,0.6668057980034039,3.896559845095909e-18
+RetinaMNIST,Robustez,gradcampp,3,6,0.858499322261086,1.6295557943119345e-11
+RetinaMNIST,Randomization,gradcampp,3,6,0.8155517814133998,3.896559845095909e-18
+RetinaMNIST,Localización,integrated_gradients,3,3,0.4621674089915742,1.2141156462338237e-167
+RetinaMNIST,Complejidad,integrated_gradients,2,5,0.7905396480419868,3.896559845095909e-18

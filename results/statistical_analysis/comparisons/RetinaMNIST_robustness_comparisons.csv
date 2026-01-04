@@ -1,7 +1,7 @@
 Comparación,p-valor,Significación,Tamaño efecto (r),Magnitud,Mejor método,Diferencia
-gradcampp vs gradcam,1.9297299068967694e-09,***,0.80226668608016,grande,gradcampp,0.040251302081844575
-gradcampp vs integrated_gradients,5.143753751233159e-11,***,0.8697825815285304,grande,gradcampp,0.7971880851299786
-gradcampp vs saliency,3.5060510731588664e-11,***,0.8697184926229039,grande,gradcampp,1.1612723306638915
-gradcam vs integrated_gradients,7.547498213151496e-11,***,0.8698489340923473,grande,gradcam,0.7569367830481339
-gradcam vs saliency,1.6295557943119345e-11,***,0.869596657714045,grande,gradcam,1.1210210285820468
-integrated_gradients vs saliency,5.143753751233159e-11,***,0.8697825815285304,grande,integrated_gradients,0.36408424553391283
+gradcampp vs gradcam,1.9297299068967694e-09,***,0.8022666858047409,grande,gradcampp,0.040251302081844575
+gradcampp vs integrated_gradients,5.143753751233159e-11,***,0.8697825878976086,grande,gradcampp,0.7971880851299786
+gradcampp vs saliency,3.5060510731588664e-11,***,0.8697184315676214,grande,gradcampp,1.1612723306638915
+gradcam vs integrated_gradients,7.547498213151496e-11,***,0.8698489400813147,grande,gradcam,0.7569367830481339
+gradcam vs saliency,1.6295557943119345e-11,***,0.8695965729808167,grande,gradcam,1.1210210285820468
+integrated_gradients vs saliency,5.143753751233159e-11,***,0.8697825878976086,grande,integrated_gradients,0.36408424553391283
