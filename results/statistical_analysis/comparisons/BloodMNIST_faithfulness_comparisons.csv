@@ -1,7 +1,7 @@
 Comparación,p-valor,Significación,Tamaño efecto (r),Magnitud,Mejor método,Diferencia
-integrated_gradients vs saliency,0.009916034767710717,ns,0.2578743632704809,pequeño,integrated_gradients,0.07540954553056509
-integrated_gradients vs gradcampp,0.00030591253406076906,***,0.36102410857867434,mediano,integrated_gradients,0.11865941952914
-integrated_gradients vs gradcam,0.00010076375400562272,***,0.38887453981189474,mediano,integrated_gradients,0.1302516083419323
-saliency vs gradcampp,0.10170516363941541,ns,0.16366426255566527,pequeño,saliency,0.04324987399857491
+integrated_gradients vs saliency,0.009916034767710717,ns,0.2578743632704811,pequeño,integrated_gradients,0.07540954553056509
+integrated_gradients vs gradcampp,0.00030591253406076906,***,0.3610241085786735,mediano,integrated_gradients,0.11865941952914
+integrated_gradients vs gradcam,0.00010076375400562272,***,0.38887453981188547,mediano,integrated_gradients,0.1302516083419323
+saliency vs gradcampp,0.10170516363941541,ns,0.16366426255566532,pequeño,saliency,0.04324987399857491
 saliency vs gradcam,0.038787590867568576,ns,0.20664332310074549,pequeño,saliency,0.05484206281136721
-gradcampp vs gradcam,0.4210690066046685,ns,0.08045680134039009,despreciable,gradcampp,0.011592188812792302
+gradcampp vs gradcam,0.4210690066046685,ns,0.0804568013403901,despreciable,gradcampp,0.011592188812792302
