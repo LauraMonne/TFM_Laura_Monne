@@ -55,7 +55,7 @@ outputs/*
 !outputs/quantus_radar_*.png
 !outputs/quantus_table_*.csv
 
-# --- PERMITIMOS las 24 imágenes usadas en el Notebook 3 ---
+# --- PERMITIMOS las 24 imágenes usadas en el Notebook 2 ---
 
 # BLOOD correcto
 !outputs/blood/gradcam/img_0_class_3.png
